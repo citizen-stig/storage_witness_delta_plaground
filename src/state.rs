@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use crate::db::{Database, DbOperations};
+use std::sync::atomic::{AtomicBool};
+use crate::db::{Database};
 use crate::witness::Witness;
 
 type DB = Arc<Database>;
@@ -11,6 +11,7 @@ type DB = Arc<Database>;
 /// It has no access to "DB" and does not witness
 #[derive(Default)]
 struct Checkpoint {
+    is_committed: AtomicBool,
     reads: HashMap<String, u64>,
     writes: HashMap<String, u64>,
     parent: Option<Arc<Checkpoint>>,
@@ -30,18 +31,6 @@ impl Checkpoint {
         None
     }
 }
-
-impl From<Checkpoint> for DbOperations {
-    fn from(value: Checkpoint) -> Self {
-        let mut writes = DbOperations::new();
-        if let Some(parent) = value.parent {
-            writes.extend(parent.into());
-        }
-        writes.extend(value.writes);
-        writes
-    }
-}
-
 
 /// Delta manages read and write operations with cache, db and witness
 struct Delta {
@@ -117,39 +106,22 @@ impl Delta {
             self.writes.insert(key.to_string(), 0);
         }
     }
-
-    fn freeze(&self) -> Checkpoint {
-        Checkpoint {
-            is_committed: Default::default(),
-            reads: self.reads.borrow().clone(),
-            writes: self.writes.clone(),
-            parent: self.parent.clone(),
-        }
-    }
 }
 
 
 /// Working set, just to mimic the real one from sov-modules-api
 /// Basically it holds delta, and aux_delta,
-struct WorkingSet {
+pub struct WorkingSet {
     delta: Delta,
     // To justify existence of this struct
     aux_delta: u64,
 }
 
 impl WorkingSet {
-    fn new(storage: DB) -> Self {
+    pub fn new(storage: DB) -> Self {
         Self {
             delta: Delta::new(storage),
             aux_delta: 0,
         }
     }
-
-    fn snapshot(&self) -> Checkpoint {
-        let db = self.delta.db.clone();
-
-        Self {
-            delta: Delta::with_parent(db, Arc::new(self.delta.freeze())),
-            aux_delta: self.aux_delta + 1,
-        }
-    }
+}
