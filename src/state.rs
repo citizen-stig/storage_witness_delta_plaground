@@ -40,13 +40,25 @@ impl Checkpoint {
     }
 }
 
+
+impl State for Arc<Checkpoint> {
+    fn snapshot(&self) -> Self {
+        Arc::new(Checkpoint {
+            is_committed: AtomicBool::new(false),
+            reads: Default::default(),
+            writes: Default::default(),
+            parent: Some(self.clone()),
+        })
+    }
+}
+
 /// Delta manages read and write operations with cache, db and witness
 struct Delta {
     db: DB,
     reads: RefCell<HashMap<String, u64>>,
     writes: HashMap<String, u64>,
     witness: Witness,
-    parent_caches: Option<Arc<Checkpoint>>,
+    parent_cache: Option<Arc<Checkpoint>>,
 }
 
 impl Delta {
@@ -56,7 +68,7 @@ impl Delta {
             witness: Default::default(),
             reads: Default::default(),
             writes: Default::default(),
-            parent_caches: None,
+            parent_cache: None,
         }
     }
 
@@ -66,7 +78,7 @@ impl Delta {
             witness: Default::default(),
             reads: Default::default(),
             writes: Default::default(),
-            parent_caches: Some(parent),
+            parent_cache: Some(parent),
 
         }
     }
@@ -87,7 +99,7 @@ impl Delta {
             println!("Found in local cache: {} {} ", key, value);
             return Some(value);
         }
-        let value = if let Some(parent) = &self.parent_caches {
+        let value = if let Some(parent) = &self.parent_cache {
             parent.get_value(key)
         } else {
             self.db.get(key)
@@ -113,6 +125,16 @@ impl Delta {
             // Type can be better, but it's not important for now
             self.writes.insert(key.to_string(), 0);
         }
+    }
+
+    fn freeze(self) -> (Witness, Arc<Checkpoint>) {
+        let checkpoint = Arc::new(Checkpoint {
+            is_committed: AtomicBool::new(false),
+            reads: self.reads.into_inner(),
+            writes: self.writes,
+            parent: self.parent_cache,
+        });
+        (self.witness, checkpoint)
     }
 }
 
