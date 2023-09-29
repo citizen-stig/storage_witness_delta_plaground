@@ -34,4 +34,14 @@ impl<D, S: State> BlockStateManager<D, S> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use crate::block_state_manager::BlockStateManager;
+    use crate::state::Checkpoint;
+
+    #[test]
+    fn new() {
+        let block_state_manager: BlockStateManager<(), Arc<Checkpoint>> = BlockStateManager::new(());
+
+
+    }
 }
