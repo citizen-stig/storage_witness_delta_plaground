@@ -7,10 +7,18 @@ use crate::witness::Witness;
 
 type DB = Arc<Database>;
 
+/// Something that represent state.
+/// We only require it to be able to create snapshot that points to it.
+/// ?? Snapshot should represent "empty" state, and only point to it's parent.
+pub trait State {
+    fn snapshot(&self) -> Self;
+}
+
+
 /// Checkpoint provides read-only access to its own and nested cached data
 /// It has no access to "DB" and does not witness
 #[derive(Default)]
-struct Checkpoint {
+pub struct Checkpoint {
     is_committed: AtomicBool,
     reads: HashMap<String, u64>,
     writes: HashMap<String, u64>,
@@ -18,7 +26,7 @@ struct Checkpoint {
 }
 
 impl Checkpoint {
-    fn get_value(&self, key: &str) -> Option<u64> {
+    pub fn get_value(&self, key: &str) -> Option<u64> {
         if let Some(value) = self.reads.get(key) {
             return Some(*value);
         }
@@ -38,7 +46,7 @@ struct Delta {
     reads: RefCell<HashMap<String, u64>>,
     writes: HashMap<String, u64>,
     witness: Witness,
-    parent: Option<Arc<Checkpoint>>,
+    parent_caches: Option<Arc<Checkpoint>>,
 }
 
 impl Delta {
@@ -48,7 +56,7 @@ impl Delta {
             witness: Default::default(),
             reads: Default::default(),
             writes: Default::default(),
-            parent: None,
+            parent_caches: None,
         }
     }
 
@@ -58,7 +66,7 @@ impl Delta {
             witness: Default::default(),
             reads: Default::default(),
             writes: Default::default(),
-            parent: Some(parent),
+            parent_caches: Some(parent),
 
         }
     }
@@ -79,7 +87,7 @@ impl Delta {
             println!("Found in local cache: {} {} ", key, value);
             return Some(value);
         }
-        let value = if let Some(parent) = &self.parent {
+        let value = if let Some(parent) = &self.parent_caches {
             parent.get_value(key)
         } else {
             self.db.get(key)
