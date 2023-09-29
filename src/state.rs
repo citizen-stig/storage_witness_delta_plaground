@@ -5,14 +5,41 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::db::{Database};
 use crate::witness::Witness;
 
-type DB = Arc<RwLock<Database>>;
+pub type DB = Arc<RwLock<Database>>;
 
-/// Something that represent state.
-/// We only require it to be able to create snapshot that points to it.
-/// ?? Snapshot should represent "empty" state, and only point to it's parent.
+
 pub trait State {
+    /// Creates new snapshot, that can read up to all previously non committed snapshots
     fn snapshot(&self) -> Self;
+
+    // ??
+    // fn erase(&self);
+    // fn commit(&self);
 }
+
+
+
+
+/// Requirement from rollup-interface
+///  - Should make minimal restriction about implementation.
+///  - Only should highlight what is expected from STF::apply_slot, basically to be stateless
+///
+
+
+
+/// Requirements from sov-modules-api / sov-state
+///
+/// - witness should be only tracked only for accesses outside of current snapshot
+/// - snapshot should be able to correctly read data
+///     from previous snapshot before resorting to the database
+/// - snapshot should treat reading from previous snapshot as reading from database,
+///     saving it in its own cache and updating witness
+/// - whole machinery need to have type safety,
+///     same as we use `WorkingSet::commit()` and `StateCheckpoint::to_revertable()`,
+///     so we know when state is "clean"
+///  - AppTemplate should be use this solution
+///
+
 
 
 /// Checkpoint provides read-only access to its own and nested cached data
@@ -44,6 +71,26 @@ impl Checkpoint {
         }
         None
     }
+
+    pub fn get_parent(&self) -> Option<Arc<Checkpoint>> {
+        self.parent.clone()
+    }
+
+    pub fn commit(&self, db: DB) {
+        if let Some(parent) = &self.parent {
+            parent.commit(db.clone());
+        }
+        // Ideally whole block should be atomic, but should work for purpose of API design
+        self.is_committed.store(true, Ordering::Release);
+        let mut db = db.write().unwrap();
+        for (key, value) in &self.writes {
+            if *value == 0 {
+                db.delete(key);
+            } else {
+                db.set(key, *value);
+            }
+        }
+    }
 }
 
 
@@ -59,7 +106,7 @@ impl State for Arc<Checkpoint> {
 }
 
 /// Delta manages read and write operations with cache, db and witness
-struct Delta {
+pub struct Delta {
     db: DB,
     reads: RefCell<HashMap<String, u64>>,
     writes: HashMap<String, u64>,
@@ -68,7 +115,7 @@ struct Delta {
 }
 
 impl Delta {
-    fn new(db: DB) -> Self {
+    pub fn new(db: DB) -> Self {
         Self {
             db,
             witness: Default::default(),
@@ -78,7 +125,7 @@ impl Delta {
         }
     }
 
-    fn with_parent(db: DB, parent: Arc<Checkpoint>) -> Self {
+    pub fn with_parent(db: DB, parent: Arc<Checkpoint>) -> Self {
         Self {
             db,
             witness: Default::default(),
@@ -123,7 +170,7 @@ impl Delta {
     }
 
 
-    fn set(&mut self, key: &str, value: u64) {
+    pub fn set(&mut self, key: &str, value: u64) {
         self.witness.track_operation(key, Some(value));
         self.writes.insert(key.to_string(), value);
         if self.reads.borrow().contains_key(key) {
@@ -144,7 +191,7 @@ impl Delta {
         }
     }
 
-    fn freeze(self) -> (Witness, Arc<Checkpoint>) {
+    pub fn freeze(self) -> (Witness, Arc<Checkpoint>) {
         let checkpoint = Arc::new(Checkpoint {
             is_committed: AtomicBool::new(false),
             reads: self.reads.into_inner(),
