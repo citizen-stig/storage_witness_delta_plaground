@@ -1,5 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
 use std::collections::HashMap;
-use crate::state::{Checkpoint, State};
+use crate::state::{Checkpoint};
 
 type SnapshotId = u64;
 type BlockHash = String;
