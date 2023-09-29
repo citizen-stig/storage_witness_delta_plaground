@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use crate::state::{Checkpoint, DB, State};
@@ -13,7 +14,7 @@ pub struct BlockStateManager {
 
     snapshots: HashMap<String, Arc<Checkpoint>>,
     to_parent: HashMap<String, String>,
-    graph: HashMap<String, Vec<String>>
+    graph: HashMap<String, Vec<String>>,
 }
 
 
@@ -39,6 +40,7 @@ impl BlockStateManager {
 
     pub fn finalize_block(&mut self, block_hash: &str) {
         let checkpoint = self.snapshots.get(block_hash).unwrap();
+        // We suppose that checkpoint will drop link to parent
         checkpoint.commit(self.database.clone());
 
         // Eliminate children
@@ -62,9 +64,9 @@ impl BlockStateManager {
 }
 
 
-
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use crate::block_state_manager::BlockStateManager;
     use crate::state::{Checkpoint, DB, Delta};
 
@@ -81,11 +83,9 @@ mod tests {
         let database = DB::default();
         let mut block_state_manager: BlockStateManager = BlockStateManager::new(database.clone());
 
-        // let base_checkpoint = Arc::new(Checkpoint::default());
-        //
-        // block_state_manager.save_snapshot("genesis", base_checkpoint);
-        //
-        //
+        let base_checkpoint = Arc::new(Checkpoint::default());
+        block_state_manager.add_snapshot("genesis", "xxxxx", base_checkpoint);
+
         let checkpoint_block_a = {
             let checkpoint = block_state_manager.get_snapshot_on_top_of("genesis").unwrap();
             let mut working_set = Delta::with_parent(database.clone(), checkpoint);
@@ -93,7 +93,7 @@ mod tests {
             let (_witness, checkpoint) = working_set.freeze();
             checkpoint
         };
-        block_state_manager.save_snapshot("a", checkpoint_block_a);
+        block_state_manager.add_snapshot("a", "genesis", checkpoint_block_a);
 
         let checkpoint_block_b = {
             let checkpoint = block_state_manager.get_snapshot_on_top_of("a").unwrap();
@@ -105,10 +105,10 @@ mod tests {
             checkpoint
         };
 
-        block_state_manager.save_snapshot("b", checkpoint_block_b);
+        block_state_manager.add_snapshot("b", "a", checkpoint_block_b);
 
         let checkpoint_block_c = {
-            let checkpoint = block_state_manager.get_snapshot_on_top_of("a").unwrap();
+            let checkpoint = block_state_manager.get_snapshot_on_top_of("b").unwrap();
             let mut delta = Delta::with_parent(database.clone(), checkpoint);
             delta.set("z", 3);
             let x = delta.get("x");

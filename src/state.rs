@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -18,8 +19,6 @@ pub trait State {
     // fn erase(&self);
     // fn commit(&self);
 }
-
-
 
 
 /// Requirement from rollup-interface
@@ -54,8 +53,9 @@ pub struct Checkpoint {
     // I assume that consistency between these two are managed "somehow"
     reads: HashMap<String, u64>,
     writes: HashMap<String, u64>,
-    parent: Option<Arc<Checkpoint>>,
+    parent: RefCell<Option<Arc<Checkpoint>>>,
 }
+
 
 impl Checkpoint {
     pub fn get_value(&self, key: &str) -> Option<u64> {
@@ -68,19 +68,20 @@ impl Checkpoint {
         if let Some(value) = self.writes.get(key) {
             return Some(*value);
         }
-        if let Some(parent) = &self.parent {
+        if let Some(parent) = &*self.parent.borrow() {
             return parent.get_value(key);
         }
         None
     }
 
     pub fn get_parent(&self) -> Option<Arc<Checkpoint>> {
-        self.parent.clone()
+        self.parent.borrow().clone()
     }
 
     pub fn commit(&self, db: DB) {
-        if let Some(parent) = &self.parent {
+        if let Some(parent) = &*self.parent.borrow() {
             parent.commit(db.clone());
+            self.parent.replace(None);
         }
         // Ideally whole block should be atomic, but should work for purpose of API design
         self.is_committed.store(true, Ordering::Release);
@@ -102,12 +103,13 @@ impl State for Arc<Checkpoint> {
             is_committed: AtomicBool::new(false),
             reads: Default::default(),
             writes: Default::default(),
-            parent: Some(self.clone()),
+            parent: RefCell::new(Some(self.clone())),
         })
     }
 }
 
 /// Delta manages read and write operations with cache, db and witness
+/// Similar to `WorkingSet` in sov-modules-api, but `WorkingSet` actually manages 2 deltas: provable and non provable.
 pub struct Delta {
     db: DB,
     reads: RefCell<HashMap<String, u64>>,
@@ -198,7 +200,7 @@ impl Delta {
             is_committed: AtomicBool::new(false),
             reads: self.reads.into_inner(),
             writes: self.writes,
-            parent: self.parent_cache,
+            parent: RefCell::new(self.parent_cache),
         });
         (self.witness, checkpoint)
     }
@@ -233,7 +235,7 @@ mod tests {
         #[test]
         fn default() {
             let checkpoint = Checkpoint::default();
-            assert!(checkpoint.parent.is_none());
+            assert!(checkpoint.parent.borrow().is_none());
             assert!(checkpoint.writes.is_empty());
             assert!(checkpoint.reads.is_empty());
             assert!(!checkpoint.is_committed.load(Ordering::SeqCst));
@@ -245,7 +247,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: None,
+                parent: RefCell::new(None),
             };
 
             checkpoint_1.writes.insert("a".to_string(), 1);
@@ -261,7 +263,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: Some(Arc::new(checkpoint_1)),
+                parent: RefCell::new(Some(Arc::new(checkpoint_1))),
             };
 
             checkpoint_2.reads.insert("c".to_string(), 3);
@@ -280,7 +282,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: None,
+                parent: RefCell::new(None),
             };
             checkpoint_1.writes.insert("a".to_string(), 1);
 
@@ -291,7 +293,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: Some(checkpoint_1.clone()),
+                parent: RefCell::new(Some(checkpoint_1.clone())),
             };
             checkpoint_2.writes.insert("b".to_string(), 2);
 
@@ -300,7 +302,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: Some(Arc::new(checkpoint_2)),
+                parent: RefCell::new(Some(Arc::new(checkpoint_2))),
             };
             checkpoint_3.writes.insert("c".to_string(), 3);
 
@@ -323,7 +325,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: None,
+                parent: RefCell::new(None),
             };
             checkpoint_1.writes.insert("a".to_string(), 1);
 
@@ -334,7 +336,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: Some(checkpoint_1.clone()),
+                parent: RefCell::new(Some(checkpoint_1.clone())),
             };
 
             checkpoint_2.writes.insert("b".to_string(), 2);
@@ -343,7 +345,7 @@ mod tests {
                 is_committed: AtomicBool::new(false),
                 reads: Default::default(),
                 writes: Default::default(),
-                parent: Some(checkpoint_1.clone()),
+                parent: RefCell::new(Some(checkpoint_1.clone())),
             };
 
             checkpoint_3.writes.insert("c".to_string(), 3);
