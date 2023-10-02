@@ -19,6 +19,7 @@ pub struct WorkingSet {
     db: DB,
     cache: CacheLog,
     witness: Witness,
+    parent: Option<Arc<StateCheckpoint>>,
 }
 
 impl WorkingSet {
@@ -27,6 +28,16 @@ impl WorkingSet {
             db,
             cache: CacheLog::default(),
             witness: Witness::default(),
+            parent: None,
+        }
+    }
+
+    fn with_parent(db: DB, parent: Arc<StateCheckpoint>) -> Self {
+        Self {
+            db,
+            cache: Default::default(),
+            witness: Default::default(),
+            parent: Some(parent),
         }
     }
 
@@ -34,7 +45,13 @@ impl WorkingSet {
         StateCheckpoint {
             db: self.db,
             cache: self.cache,
+            parent: self.parent,
         }
+    }
+
+    pub fn freeze(mut self) -> (StateCheckpoint, Witness) {
+        let witness = std::mem::replace(&mut self.witness, Witness::default());
+        (self.checkpoint(), witness)
     }
 
     // Operations. Only get/set, don't care about delete for simplicity
@@ -73,15 +90,25 @@ pub struct StateCheckpoint {
     // Only used to pass handler to WorkingSet
     db: DB,
     cache: CacheLog,
+    parent: Option<Arc<StateCheckpoint>>,
 }
 
 
 impl StateCheckpoint {
     pub fn to_revertable(self) -> WorkingSet {
-        WorkingSet {
-            db: self.db,
-            cache: self.cache,
-            witness: Witness::default(),
-        }
+        WorkingSet::with_parent(self.db.clone(), Arc::new(self))
+    }
+}
+
+
+/// Meat
+
+impl StateSnapshot for StateCheckpoint {
+    fn on_top(&self) -> Self {
+        todo!()
+    }
+
+    fn commit(&self) -> CacheLog {
+        todo!()
     }
 }
