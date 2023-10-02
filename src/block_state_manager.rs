@@ -13,7 +13,7 @@ pub struct BlockStateManager<S: StateSnapshot> {
     database: DB,
     // Block hash -> Snapshot
     // Block A -> Snapshot 1
-    // Block B -> Snapshot 10 -> 9 -> 8 ... -> 1
+    // Block B -> Snapshot 10 -> 9 -> 8 ... -> 2
     snapshots: HashMap<String, S>,
     to_parent: HashMap<String, String>,
     graph: HashMap<String, Vec<String>>,

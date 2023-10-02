@@ -8,15 +8,27 @@ use crate::witness::Witness;
 pub type DB = Arc<Mutex<Database>>;
 
 pub trait StateSnapshot {
-    fn on_top(&self) -> Self;
 
-    /// What should it do? Several options
-    ///
-    /// 1. Return writes from this layer, so it is up to caller
-    /// 2. Recursively commit all parents up to the last committed and merge all cache logs into 1
-    fn commit(self) -> CacheLog;
+    type ApplySlotResult;
+    type StateCheckpointLike;
+    /// TODO: Associated type that can hold "WorkingSet"..
+    fn on_top(&self) -> Self::StateCheckpointLike;
+
+    // /// What should it do? Several options
+    // ///
+    // /// 1. Return writes from this layer, so it is up to caller
+    // /// 2. Recursively commit all parents up to the last committed and merge all cache logs into 1
+    // /// TODO:
+    // fn commit(self) -> Self::ApplySlotResult;
 }
 
+//
+
+// a -> b -> c -> d - d'
+//       \-> e -> f
+
+//  a -> b -> c -> d
+//       \-> e -> f
 
 /// WorkingSet manages read/write and witness
 pub struct WorkingSet {
@@ -159,9 +171,43 @@ impl StateSnapshot for Arc<StateCheckpoint> {
             cache.merge_left(parent.commit()).unwrap();
         }
         // NASTY: Caller should drop all references to self before calling commit
+        // Maybe add can_commit? But it is runtime safety,
         let mut raw = Arc::<StateCheckpoint>::into_inner(self).unwrap();
         raw.parent = None;
         cache.merge_left(raw.cache).unwrap();
         cache
     }
 }
+
+
+///
+
+
+/// Notes:
+/// 0. Use Weak to parent
+/// 1. Read from DB not in the "latest" node in chain,
+/// but in the oldest not committed, by checking if Weak<Parent> is present
+/// Do not use snapshoting inside STF, but just modereate...
+
+
+/// We don't want STF to be able to spawn children, so weak ref will be dropped
+/// So we want StateSnapshot to produce StateCheckpoint(associated type, concrete)
+/// and then give it to STF. Stf returns it back, effectively, also plays with WorkingSet.
+
+/// Questions:
+///  - How to convert StateCheckpoint back to StateSnapshot?
+///  - How ForkManager knows how to commit StateCheckpoint?
+
+/// BlockStateManager<S: StateSnapshot>:: -> S::WorkingSetLike
+/// Stf(S::WorkingSetLike) -> S::WorkingSetLike.
+/// BlockStateManager::add_snapshot(block_hash, s: S)
+
+
+
+/// DB needs to be generic, and this associated type,
+
+
+/// Whoever constructs STF and BlockStateManager,
+/// need to add constraint to convert StateCheckpoint back to StateSnapshot
+
+

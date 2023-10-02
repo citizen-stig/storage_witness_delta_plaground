@@ -1,4 +1,4 @@
-use crate::state::{DB, StateCheckpoint, WorkingSet};
+use crate::state::{DB, StateCheckpoint, StateSnapshot, WorkingSet};
 use crate::types::{Key, Value};
 
 
@@ -7,6 +7,10 @@ pub trait STF {
     type Witness;
     type BlobTransaction;
 
+    type WorkingSet;
+
+
+
 
     fn apply_slot<'a, I>(
         &mut self,
@@ -14,7 +18,8 @@ pub trait STF {
         blobs: I,
     ) ->
         (Self::StateRoot,
-         Self::Witness)
+         Self::Witness,
+         Into<StateSnapshot>)
         where
             I: IntoIterator<Item=Self::BlobTransaction>;
 }
