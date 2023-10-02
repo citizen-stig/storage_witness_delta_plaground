@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use crate::Operation;
+use crate::state::{DB, StateCheckpoint, WorkingSet};
+use crate::types::{Key, Value};
 
 
 pub trait STF {
@@ -20,9 +20,46 @@ pub trait STF {
 }
 
 
+enum Operation {
+    Get(Key),
+    Set(Key, Value),
+}
+
 struct SampleSTF {
     state_root: u64,
-    state: HashMap<String, u64>,
+    db: DB,
+}
+
+impl SampleSTF {
+    pub fn new(db: DB) -> Self {
+        Self {
+            state_root: 0,
+            db,
+        }
+    }
+}
+
+impl SampleSTF {
+    fn apply_operation(&mut self, base: StateCheckpoint, operation: Operation) -> StateCheckpoint {
+        let mut working_set = base.to_revertable();
+        match operation {
+            Operation::Get(key) => {
+                let value = working_set.get(&key);
+                println!("Get {} {:?}", key.to_string(), value.map(|v| v.to_string()));
+            }
+            Operation::Set(key, value) => {
+                let key_string = key.to_string();
+                let value_string = value.to_string();
+                if &key_string == "foo" && value_string == "bar" {
+                    println!("Skipping this transaction to previous state");
+                    return working_set.revert();
+                }
+                println!("Set {} = {}", key.to_string(), value.to_string());
+                working_set.set(&key, value);
+            }
+        }
+        return working_set.commit();
+    }
 }
 
 impl STF for SampleSTF {
@@ -31,23 +68,12 @@ impl STF for SampleSTF {
     type BlobTransaction = Operation;
 
     fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, blobs: I) -> (Self::StateRoot, Self::Witness) where I: IntoIterator<Item=Self::BlobTransaction> {
-        let mut prev_state_root = self.state_root;
+        let working_set = WorkingSet::new(self.db.clone());
+        let mut checkpoint = working_set.commit();
+
         for operation in blobs {
-            match operation {
-                Operation::Get(key) => {
-                    println!("Get {}", key);
-                    prev_state_root += 1;
-                }
-                Operation::Set(key, value) => {
-                    println!("Set {} = {}", key, value);
-                    prev_state_root += 3;
-                }
-                Operation::Delete(delete) => {
-                    println!("Delete {}", delete);
-                    prev_state_root += 3
-                }
-            }
+            checkpoint = self.apply_operation(checkpoint, operation);
         }
-        (prev_state_root, vec![prev_state_root])
+        (self.state_root, vec![self.state_root])
     }
 }

@@ -23,16 +23,16 @@ pub struct WorkingSet {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: Option<Arc<StateCheckpoint>>,
+    parent: Arc<StateCheckpoint>,
 }
 
 impl WorkingSet {
     pub fn new(db: DB) -> Self {
         Self {
-            db,
+            db: db.clone(),
             cache: CacheLog::default(),
             witness: Witness::default(),
-            parent: None,
+            parent: Arc::new(StateCheckpoint::new(db.clone())),
         }
     }
 
@@ -41,21 +41,29 @@ impl WorkingSet {
             db,
             cache: Default::default(),
             witness: Default::default(),
-            parent: Some(parent),
+            parent,
         }
     }
 
-    pub fn checkpoint(self) -> StateCheckpoint {
+    pub fn commit(self) -> StateCheckpoint {
         StateCheckpoint {
             db: self.db,
             cache: self.cache,
-            parent: self.parent,
+            parent: Some(self.parent),
+        }
+    }
+
+    pub fn revert(self) -> StateCheckpoint {
+        StateCheckpoint {
+            db: self.db,
+            cache: Default::default(),
+            parent: Some(self.parent),
         }
     }
 
     pub fn freeze(mut self) -> (StateCheckpoint, Witness) {
         let witness = std::mem::replace(&mut self.witness, Witness::default());
-        (self.checkpoint(), witness)
+        (self.commit(), witness)
     }
 
     // Operations. Only get/set, don't care about delete for simplicity
@@ -98,14 +106,35 @@ pub struct StateCheckpoint {
 }
 
 
-
-
 impl StateCheckpoint {
+    pub fn new(db: DB) -> Self {
+        Self {
+            db,
+            cache: Default::default(),
+            parent: None,
+        }
+    }
+
     pub fn to_revertable(self) -> WorkingSet {
         WorkingSet::with_parent(self.db.clone(), Arc::new(self))
     }
 }
 
+
+// impl StateSnapshot for StateCheckpoint {
+//     fn on_top(&self) -> Self {
+//        Self {
+//            db: self.db.clone(),
+//            cache: Default::default(),
+//            // Cannot move reference into arc.
+//            parent: None,
+//        }
+//     }
+//
+//     fn commit(self) -> CacheLog {
+//         todo!()
+//     }
+// }
 
 /// Meat
 
@@ -118,13 +147,20 @@ impl StateSnapshot for Arc<StateCheckpoint> {
         })
     }
 
+    /// Returns cachelog
     fn commit(self) -> CacheLog {
+        // Return cache log, recursively
+
+        // Drop reference to parent
+
+
         let mut cache = CacheLog::default();
         if let Some(parent) = self.parent.clone() {
             cache.merge_left(parent.commit()).unwrap();
         }
         // NASTY: Caller should drop all references to self before calling commit
-        let raw = Arc::<StateCheckpoint>::into_inner(self).unwrap();
+        let mut raw = Arc::<StateCheckpoint>::into_inner(self).unwrap();
+        raw.parent = None;
         cache.merge_left(raw.cache).unwrap();
         cache
     }
