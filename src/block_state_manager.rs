@@ -10,7 +10,7 @@ use crate::types::{Key, Value};
 
 
 impl Persistence for Database {
-    type Payload = FrozenStateCheckpoint;
+    type Payload = Arc<FrozenStateCheckpoint>;
 
     fn commit(&mut self, data: Self::Payload) {
         let writes = data.get_own_cache().take_writes();

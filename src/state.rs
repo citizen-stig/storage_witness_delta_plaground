@@ -66,6 +66,17 @@ impl BlockStateSnapshot for Arc<FrozenStateCheckpoint> {
 }
 
 
+impl From<StateCheckpoint> for Arc<FrozenStateCheckpoint> {
+    fn from(value: StateCheckpoint) -> Self {
+        let frozen = FrozenStateCheckpoint {
+            db: value.db,
+            cache: value.cache,
+            parent: value.parent,
+        };
+        Arc::new(frozen)
+    }
+}
+
 impl StateCheckpoint {
     pub fn to_revertable(self) -> WorkingSet {
         WorkingSet {
