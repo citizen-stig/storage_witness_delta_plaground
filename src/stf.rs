@@ -1,49 +1,50 @@
-use crate::state::{DB, StateCheckpoint, StateSnapshot, WorkingSet};
-use crate::types::{Key, Value};
+// use crate::state::{DB, StateCheckpoint};
+// use crate::types::{Key, Value};
 
+
+use crate::state::StateCheckpoint;
+use crate::types::{Key, Value};
 
 pub trait STF {
     type StateRoot;
     type Witness;
     type BlobTransaction;
 
-    type WorkingSet;
-
-
+    type Checkpoint;
 
 
     fn apply_slot<'a, I>(
         &mut self,
         pre_state_root: &Self::StateRoot,
+        base: Self::Checkpoint,
         blobs: I,
     ) ->
         (Self::StateRoot,
          Self::Witness,
-         Into<StateSnapshot>)
+         Self::Checkpoint)
         where
             I: IntoIterator<Item=Self::BlobTransaction>;
 }
-
 
 enum Operation {
     Get(Key),
     Set(Key, Value),
 }
 
+
 struct SampleSTF {
     state_root: u64,
-    db: DB,
 }
 
 impl SampleSTF {
-    pub fn new(db: DB) -> Self {
+    pub fn new() -> Self {
         Self {
             state_root: 0,
-            db,
         }
     }
 }
 
+//
 impl SampleSTF {
     fn apply_operation(&mut self, base: StateCheckpoint, operation: Operation) -> StateCheckpoint {
         let mut working_set = base.to_revertable();
@@ -66,19 +67,19 @@ impl SampleSTF {
         return working_set.commit();
     }
 }
-
-impl STF for SampleSTF {
-    type StateRoot = u64;
-    type Witness = Vec<u64>;
-    type BlobTransaction = Operation;
-
-    fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, blobs: I) -> (Self::StateRoot, Self::Witness) where I: IntoIterator<Item=Self::BlobTransaction> {
-        let working_set = WorkingSet::new(self.db.clone());
-        let mut checkpoint = working_set.commit();
-
-        for operation in blobs {
-            checkpoint = self.apply_operation(checkpoint, operation);
-        }
-        (self.state_root, vec![self.state_root])
-    }
-}
+//
+// impl STF for SampleSTF {
+//     type StateRoot = u64;
+//     type Witness = Vec<u64>;
+//     type BlobTransaction = Operation;
+//
+//     fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, blobs: I) -> (Self::StateRoot, Self::Witness) where I: IntoIterator<Item=Self::BlobTransaction> {
+//         let working_set = WorkingSet::new(self.db.clone());
+//         let mut checkpoint = working_set.commit();
+//
+//         for operation in blobs {
+//             checkpoint = self.apply_operation(checkpoint, operation);
+//         }
+//         (self.state_root, vec![self.state_root])
+//     }
+// }

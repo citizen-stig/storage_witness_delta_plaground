@@ -3,29 +3,42 @@
 
 
 use std::collections::HashMap;
-use crate::db::persist_cache;
-use crate::state::{StateSnapshot, DB};
+use std::sync::{Arc, Mutex};
+use crate::db::{Database, Persistence};
+use crate::state::{BlockStateSnapshot, FrozenStateCheckpoint};
+use crate::types::{Key, Value};
 
-/// Manages snapshots of the state corresponding to particular block
-/// 1 snapshot - 1 block
-/// When block is finalized, BlockStateManager, knows how to discard orphans, for example, because it tracks all snapshots by height
-pub struct BlockStateManager<S: StateSnapshot> {
-    database: DB,
-    // Block hash -> Snapshot
-    // Block A -> Snapshot 1
-    // Block B -> Snapshot 10 -> 9 -> 8 ... -> 2
+
+impl Persistence for Database {
+    type Payload = FrozenStateCheckpoint;
+
+    fn commit(&mut self, data: Self::Payload) {
+        let writes = data.get_own_cache().take_writes();
+        for (key, value) in writes {
+            let key = Key::from(key).to_string();
+            match value {
+                Some(value) => self.set(&key, Value::from(value).to_string()),
+                None => self.delete(&key),
+            }
+        }
+    }
+}
+
+/// BlockState manager maintains chain of BlockStateSnapshots, commits them
+pub struct BlockStateManager<S: BlockStateSnapshot, P: Persistence<Payload=S>> {
+    db: Arc<Mutex<P>>,
     snapshots: HashMap<String, S>,
     to_parent: HashMap<String, String>,
     graph: HashMap<String, Vec<String>>,
+
 }
 
 
-impl<S: StateSnapshot> BlockStateManager<S> {
-    pub fn get_snapshot_on_top_of(&self, block_hash: &str) -> Option<S> {
+impl<S: BlockStateSnapshot, P: Persistence<Payload=S>> BlockStateManager<S, P> {
+    pub fn get_snapshot_on_top_of(&self, block_hash: &str) -> Option<S::Checkpoint> {
         self.snapshots.get(block_hash).map(|s| s.on_top())
     }
 
-    /// Called after STF with snapshot it returns
     pub fn add_snapshot(&mut self, current_block_hash: &str, parent_block_hash: &str, snapshot: S) {
         self.snapshots.insert(current_block_hash.to_string(), snapshot);
         self.to_parent.insert(current_block_hash.to_string(), parent_block_hash.to_string());
@@ -34,39 +47,14 @@ impl<S: StateSnapshot> BlockStateManager<S> {
 
     pub fn finalize_block(&mut self, block_hash: &str) {
         // 1. snapshot of this block is removed from "snapshots" map
-        // 2. snapshot and its parents, who weren't committed, are committed
-        //      - Assumption: on L1 blocks are finalized in order.
-        //      - When current snapshot is committed, it still holds all arcs up to beginning of time. So it should drop it.
-        //      - current snapshot, holds data only from previous snapshot. it basically holds last tx from last batch. Whole is committed by traversing it back to "last commited"
-        //  Before there was atomic bool, which was used as point to stop giving back data. And then I added Refcell around parent: Option,
-        // 3. All siblings and their chains are discarded, removed from hashmap, so their pointers to genesis state should go away
-
-
-
-
-
-
-
-
-
-
-
-        // Persist current snapshot to the database
-
-
+        let mut db = self.db.lock().unwrap();
 
         let snapshot = self.snapshots.remove(block_hash).unwrap();
-        let cache_log = snapshot.commit();
-        persist_cache(&mut self.database.lock().unwrap(), cache_log);
+        db.commit(snapshot);
 
-        // Discard all snapshots that are not on top of the finalized block
         let parent = self.to_parent.remove(block_hash).unwrap();
         let mut to_discard = self.graph.remove(&parent).unwrap();
         to_discard.retain(|hash| hash != block_hash);
-        // TODO: Insert this back to parent
-
-        // Parent was removed when it was committed
-        // self.snapshots.remove(&parent).unwrap().commit();
 
         while !to_discard.is_empty() {
             let next_to_discard = to_discard.pop().unwrap();
@@ -74,8 +62,7 @@ impl<S: StateSnapshot> BlockStateManager<S> {
             let next_to_discard_children = self.graph.remove(&next_to_discard).unwrap();
             to_discard.extend(next_to_discard_children);
             self.to_parent.remove(&next_to_discard);
-            let discarded_snapshot = self.snapshots.remove(&next_to_discard).unwrap();
-            discarded_snapshot.commit();
+            self.snapshots.remove(&next_to_discard).unwrap();
         }
     }
 }

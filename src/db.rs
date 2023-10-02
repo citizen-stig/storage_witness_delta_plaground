@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use sov_first_read_last_write_cache::cache::CacheLog;
-use crate::types::{Key, Value};
 
 #[derive(Default, Debug)]
 pub struct Database {
@@ -25,13 +24,11 @@ impl Database {
 }
 
 
-pub fn persist_cache(db: &mut Database, cache: CacheLog) {
-    let writes = cache.take_writes();
-    for (key, value) in writes {
-        let key = Key::from(key).to_string();
-        match value {
-            Some(value) => db.set(&key, Value::from(value).to_string()),
-            None => db.delete(&key),
-        }
-    }
+pub fn persist_cache(db: &mut Database, cache: CacheLog) {}
+
+
+pub trait Persistence {
+    type Payload;
+
+    fn commit(&mut self, data: Self::Payload);
 }
