@@ -10,7 +10,11 @@ pub type DB = Arc<Mutex<Database>>;
 pub trait StateSnapshot {
     fn on_top(&self) -> Self;
 
-    fn commit(&self) -> CacheLog;
+    /// What should it do? Several options
+    ///
+    /// 1. Return writes from this layer, so it is up to caller
+    /// 2. Recursively commit all parents up to the last committed and merge all cache logs into 1
+    fn commit(self) -> CacheLog;
 }
 
 
@@ -94,6 +98,8 @@ pub struct StateCheckpoint {
 }
 
 
+
+
 impl StateCheckpoint {
     pub fn to_revertable(self) -> WorkingSet {
         WorkingSet::with_parent(self.db.clone(), Arc::new(self))
@@ -103,12 +109,23 @@ impl StateCheckpoint {
 
 /// Meat
 
-impl StateSnapshot for StateCheckpoint {
+impl StateSnapshot for Arc<StateCheckpoint> {
     fn on_top(&self) -> Self {
-        todo!()
+        Arc::new(StateCheckpoint {
+            db: self.db.clone(),
+            cache: Default::default(),
+            parent: Some(self.clone()),
+        })
     }
 
-    fn commit(&self) -> CacheLog {
-        todo!()
+    fn commit(self) -> CacheLog {
+        let mut cache = CacheLog::default();
+        if let Some(parent) = self.parent.clone() {
+            cache.merge_left(parent.commit()).unwrap();
+        }
+        // NASTY: Caller should drop all references to self before calling commit
+        let raw = Arc::<StateCheckpoint>::into_inner(self).unwrap();
+        cache.merge_left(raw.cache).unwrap();
+        cache
     }
 }

@@ -30,7 +30,7 @@ impl<S: StateSnapshot> BlockStateManager<S> {
 
     pub fn finalize_block(&mut self, block_hash: &str) {
         // Persist current snapshot to the database
-        let snapshot = self.snapshots.get(block_hash).unwrap();
+        let snapshot = self.snapshots.remove(block_hash).unwrap();
         let cache_log = snapshot.commit();
         persist_cache(&mut self.database.lock().unwrap(), cache_log);
 
@@ -38,8 +38,10 @@ impl<S: StateSnapshot> BlockStateManager<S> {
         let parent = self.to_parent.remove(block_hash).unwrap();
         let mut to_discard = self.graph.remove(&parent).unwrap();
         to_discard.retain(|hash| hash != block_hash);
+        // TODO: Insert this back to parent
 
-        self.snapshots.remove(&parent).unwrap().commit();
+        // Parent was removed when it was commited
+        // self.snapshots.remove(&parent).unwrap().commit();
 
         while !to_discard.is_empty() {
             let next_to_discard = to_discard.pop().unwrap();
