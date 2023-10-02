@@ -2,15 +2,16 @@
 #![allow(unused_variables)]
 
 use std::cell::RefCell;
+use crate::types::{Key, Value};
 
 #[derive(Default, Debug)]
 pub struct Witness {
-    data: RefCell<Vec<(String, Option<u64>)>>,
+    data: RefCell<Vec<(Key, Option<Value>)>>,
 }
 
 impl Witness {
-    pub fn track_operation(&self, key: &str, value: Option<u64>) {
-        self.data.borrow_mut().push((key.to_string(), value));
+    pub fn track_operation(&self, key: &Key, value: Option<Value>) {
+        self.data.borrow_mut().push((key.clone(), value));
     }
 
     pub fn len(&self) -> usize {
