@@ -35,6 +35,16 @@ pub struct BlockStateManager<S: BlockStateSnapshot, P: Persistence<Payload=S>> {
 
 
 impl<S: BlockStateSnapshot, P: Persistence<Payload=S>> BlockStateManager<S, P> {
+    pub fn new(db: Arc<Mutex<P>>) -> Self {
+        Self {
+            db,
+            // TODO: Add genesis,
+            snapshots: Default::default(),
+            to_parent: Default::default(),
+            graph: Default::default(),
+        }
+    }
+
     pub fn get_snapshot_on_top_of(&self, block_hash: &str) -> Option<S::Checkpoint> {
         self.snapshots.get(block_hash).map(|s| s.on_top())
     }
@@ -49,9 +59,11 @@ impl<S: BlockStateSnapshot, P: Persistence<Payload=S>> BlockStateManager<S, P> {
         // 1. snapshot of this block is removed from "snapshots" map
         let mut db = self.db.lock().unwrap();
 
+        // This snapshot is committed to the database
         let snapshot = self.snapshots.remove(block_hash).unwrap();
         db.commit(snapshot);
 
+        // All siblings are dropped.
         let parent = self.to_parent.remove(block_hash).unwrap();
         let mut to_discard = self.graph.remove(&parent).unwrap();
         to_discard.retain(|hash| hash != block_hash);

@@ -4,6 +4,7 @@
 
 use crate::state::StateCheckpoint;
 use crate::types::{Key, Value};
+use crate::witness::Witness;
 
 pub trait STF {
     type StateRoot;
@@ -32,7 +33,7 @@ enum Operation {
 }
 
 
-struct SampleSTF {
+pub struct SampleSTF {
     state_root: u64,
 }
 
@@ -67,19 +68,19 @@ impl SampleSTF {
         return working_set.commit();
     }
 }
-//
-// impl STF for SampleSTF {
-//     type StateRoot = u64;
-//     type Witness = Vec<u64>;
-//     type BlobTransaction = Operation;
-//
-//     fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, blobs: I) -> (Self::StateRoot, Self::Witness) where I: IntoIterator<Item=Self::BlobTransaction> {
-//         let working_set = WorkingSet::new(self.db.clone());
-//         let mut checkpoint = working_set.commit();
-//
-//         for operation in blobs {
-//             checkpoint = self.apply_operation(checkpoint, operation);
-//         }
-//         (self.state_root, vec![self.state_root])
-//     }
-// }
+
+impl STF for SampleSTF {
+    type StateRoot = u64;
+    type Witness = Witness;
+    type BlobTransaction = Operation;
+    type Checkpoint = StateCheckpoint;
+
+    fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, base: Self::Checkpoint, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Checkpoint) where I: IntoIterator<Item=Self::BlobTransaction> {
+        let mut checkpoint = base;
+        for operation in blobs {
+            checkpoint = self.apply_operation(checkpoint, operation);
+        }
+
+        (self.state_root, Witness::default(), checkpoint)
+    }
+}
