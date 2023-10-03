@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
@@ -47,7 +48,6 @@ impl FrozenStateCheckpoint {
     }
 
     pub fn get_own_cache(self) -> CacheLog {
-        // TODO: What about parents? C
         self.cache
     }
 }
@@ -65,7 +65,6 @@ impl BlockStateSnapshot for Arc<FrozenStateCheckpoint> {
     }
 }
 
-
 impl From<StateCheckpoint> for Arc<FrozenStateCheckpoint> {
     fn from(value: StateCheckpoint) -> Self {
         let frozen = FrozenStateCheckpoint {
@@ -81,17 +80,84 @@ impl StateCheckpoint {
     pub fn to_revertable(self) -> WorkingSet {
         WorkingSet {
             db: self.db,
-            cache: self.cache,
+            cache: RevertableWriter::new(self.cache),
             witness: self.witness,
             parent: self.parent,
         }
     }
 }
 
+pub(crate) trait StateReaderAndWriter {
+    fn get(&mut self, key: &Key) -> Option<Value>;
+    fn set(&mut self, key: &Key, value: Value);
+    fn delete(&mut self, key: &Key);
+}
+
+
+impl StateReaderAndWriter for CacheLog {
+    fn get(&mut self, key: &Key) -> Option<Value> {
+        let cache_key = CacheKey::from(key.clone());
+        match self.get_value(&cache_key) {
+            ValueExists::Yes(some) => {
+                some.map(|v| Value::from(v))
+            }
+            ValueExists::No => {
+                None
+            }
+        }
+    }
+
+    fn set(&mut self, key: &Key, value: Value) {
+        let cache_key = CacheKey::from(key.clone());
+        let value = CacheValue::from(value);
+        self.add_write(cache_key, Some(value));
+    }
+
+    fn delete(&mut self, key: &Key) {
+        let cache_key = CacheKey::from(key.clone());
+        self.add_write(cache_key, None);
+    }
+}
+
+struct RevertableWriter<T> {
+    inner: T,
+    writes: HashMap<CacheKey, Option<CacheValue>>,
+}
+
+
+impl<T> RevertableWriter<T>
+    where
+        T: StateReaderAndWriter,
+{
+    fn new(inner: T) -> Self {
+        Self {
+            inner,
+            writes: Default::default(),
+        }
+    }
+
+    fn commit(mut self) -> T {
+        for (k, v) in self.writes.into_iter() {
+            if let Some(v) = v {
+                self.inner.set(&k.into(), v.into());
+            } else {
+                self.inner.delete(&k.into());
+            }
+        }
+
+        self.inner
+    }
+
+    fn revert(self) -> T {
+        self.inner
+    }
+}
+
 
 pub struct WorkingSet {
     db: DB,
-    cache: CacheLog,
+    /// TODO: Add RevertableWriter<CacheLog>
+    cache: RevertableWriter<CacheLog>,
     witness: Witness,
     parent: Weak<FrozenStateCheckpoint>,
 }
@@ -101,8 +167,9 @@ impl WorkingSet {
     pub fn get(&mut self, key: &Key) -> Option<Value> {
         let cache_key = CacheKey::from(key.clone());
 
+
         // Read from own cache
-        if let ValueExists::Yes(value) = self.cache.get_value(&cache_key) {
+        if let ValueExists::Yes(value) = self.cache.inner.get_value(&cache_key) {
             return value.map(Value::from);
         }
 
@@ -113,20 +180,21 @@ impl WorkingSet {
             self.db.lock().unwrap().get(&key.to_string()).map(Value::from)
         };
         // AM I MISSING SOMETHING? SHOULD I DROP custom "witness" ?
-        self.cache.add_read(key.clone().into(), value.clone().map(CacheValue::from)).unwrap();
+        self.cache.inner.add_read(key.clone().into(), value.clone().map(CacheValue::from)).unwrap();
         self.witness.track_operation(key, value.clone());
         value
     }
 
     pub fn set(&mut self, key: &Key, value: Value) {
         self.witness.track_operation(key, Some(value.clone()));
-        self.cache.add_write(CacheKey::from(key.clone()), Some(CacheValue::from(value)));
+        self.cache.inner.set(key, value);
     }
+
 
     pub fn commit(self) -> StateCheckpoint {
         StateCheckpoint {
             db: self.db,
-            cache: self.cache,
+            cache: self.cache.commit(),
             witness: self.witness,
             parent: self.parent,
         }
@@ -135,11 +203,25 @@ impl WorkingSet {
     pub fn revert(self) -> StateCheckpoint {
         StateCheckpoint {
             db: self.db,
-            cache: CacheLog::default(),
+            cache: self.cache.revert(),
             witness: Witness::default(),
             parent: self.parent,
         }
     }
 }
 
+
+// BlockStateManager: BlockHash -> Arc<FrozenStateSnapShot>.
+// FrozenStateSnapShot::Weak<FrozenStateSnapshot> // parent relation
+// Arc<FrozenStateSnapshot> -> StateCheckpoint.
+// StateCheckpoint::Weak<FrozenStateSnapshot>
+// STF::apply_slot(s: StateCheckpoint) {
+//   let WorkingSet = StateCheckpoint::to_revertable(self);
+//   WorkingSet::RevertableWrites<StateCheckpoint> <- actual change in cache only happens in commit,
+//                                                    so writes do not pollute witness before committed
+//
+//   return WorkingSet::commit()
+// }
+// let frozen_state_checkpoint = returned_state_checkpoint.into();
+// BlockStateManager.add_snapshot(Arc::new(frozen_state_checkpoint), block_hash_was_executed);
 
