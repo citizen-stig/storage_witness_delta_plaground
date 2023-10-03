@@ -1,7 +1,3 @@
-// use crate::state::{DB, StateCheckpoint};
-// use crate::types::{Key, Value};
-
-
 use crate::state::StateCheckpoint;
 use crate::types::{Key, Value};
 use crate::witness::Witness;
@@ -27,7 +23,7 @@ pub trait STF {
             I: IntoIterator<Item=Self::BlobTransaction>;
 }
 
-enum Operation {
+pub enum Operation {
     Get(Key),
     Set(Key, Value),
 }

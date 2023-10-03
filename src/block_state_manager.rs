@@ -13,7 +13,9 @@ impl Persistence for Database {
     type Payload = Arc<FrozenStateCheckpoint>;
 
     fn commit(&mut self, data: Self::Payload) {
-        let writes = data.get_own_cache().take_writes();
+        // NASTY AGAIN!
+        let raw = Arc::into_inner(data).unwrap();
+        let writes = raw.get_own_cache().take_writes();
         for (key, value) in writes {
             let key = Key::from(key).to_string();
             match value {
