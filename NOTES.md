@@ -28,7 +28,12 @@ Whoever constructs STF and BlockStateManager, need to add constraint to convert 
 
 Questions
 
- - What is relation between existing StateCheckpoint and WorkingSet, as they do not commit themself anymore? Would it be just cache collapse or revert?
-   - WorkingSet is effectively Cache of internalcache, so it only writes
- - Why earliest node needs to read from DB? Why it cannot be done in the latest?
+ - What is the relation between existing StateCheckpoint and WorkingSet, as they do not commit themself anymore? Would it be just cache collapse or revert?
+   - WorkingSet is effectively Cache of internal cache, so it only writes
+ - Why the earliest node needs to read from DB? Why cannot it be done in the latest?
+ - How to express that S is Arc<payload>, so it is BlockStateManager who can do try_from?
  - 
+
+
+TODO:
+ - Add working example of STF
