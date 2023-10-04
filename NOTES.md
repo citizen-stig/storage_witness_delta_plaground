@@ -39,3 +39,10 @@ Questions
 TODO:
  - Add working example of STF
  - Remove duplication in Frozen or StateCheckpoint
+
+# 04.10
+
+Questions
+
+- Why the earliest node needs to read from DB? Why cannot it be done in the latest?
+    - Q from Blaze: Why Frozen and StateCheckpoint both need database instance?
