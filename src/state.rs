@@ -46,12 +46,12 @@ pub trait StateTreeManager {
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash);
 
 
+    /// NOTE: THIS IS SOMETHING DIFFERENT from above.
     fn get_value_recursive(&self,
                            snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id,
                            key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key,
     ) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value>;
 }
-
 
 type SnapshotId = u64;
 
@@ -273,7 +273,7 @@ pub struct StateCheckpoint<Sm: StateTreeManager> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    // parent: SnapshotImpl<Sm>,
+    parent: SnapshotImpl<Sm>,
 }
 
 impl<Sm: StateTreeManager> From<StateCheckpoint<Sm>> for SnapshotImpl<Sm> {
@@ -392,7 +392,7 @@ impl<Sm: StateTreeManager> WorkingSet<Sm> {
 
 
         // Check parent recursively
-        let _value_from_parent = self.parent.get_value_from_parent(key);
+        // let _value_from_parent = self.parent.get_value_from_parent(key);
 
         // Reading from database
         // Add handling for add_read and putting it in local cache
