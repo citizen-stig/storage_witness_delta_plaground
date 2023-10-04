@@ -8,12 +8,12 @@ mod block_state_manager;
 mod stf;
 mod types;
 
-use std::sync::{Arc, Mutex};
-use crate::block_state_manager::BlockStateManager;
-
-use crate::db::{Database, Persistence};
-use crate::state::{BlockStateSnapshot, FrozenStateCheckpoint};
-use crate::stf::{SampleSTF, STF};
+// use std::sync::{Arc, Mutex};
+// use crate::block_state_manager::BlockStateManager;
+//
+// use crate::db::{Database, Persistence};
+// use crate::state::{BlockStateSnapshot, FrozenStateCheckpoint};
+// use crate::stf::{SampleSTF, STF};
 
 /// Requirements
 ///  - Consumers of "StateSnapshot" trait should be able to use it without knowing about manager and only returning one snapshot that needs to be committed.
@@ -41,20 +41,20 @@ use crate::stf::{SampleSTF, STF};
 ///  - AppTemplate should be use this solution
 ///
 
-fn runner<Stf, S, P>(stf: Stf, block_state_manager: BlockStateManager<S, P>)
-    where
-        S: BlockStateSnapshot,
-        P: Persistence<Payload=S>,
-        Stf: STF<Checkpoint=S::Checkpoint>,
-        Stf::Checkpoint: Into<S>,
-{
-    todo!("")
-}
+// fn runner<Stf, S, P>(stf: Stf, block_state_manager: BlockStateManager<S, P>)
+//     where
+//         S: BlockStateSnapshot,
+//         P: Persistence<Payload=S>,
+//         Stf: STF<Checkpoint=S::Checkpoint>,
+//         Stf::Checkpoint: Into<S>,
+// {
+//     todo!("")
+// }
 
 
 fn main() {
-    let db = Arc::new(Mutex::new(Database::default()));
-    let stf = SampleSTF::new();
-    let block_state_manager = BlockStateManager::<Arc<FrozenStateCheckpoint>, Database>::new(db.clone());
-    runner(stf, block_state_manager)
+    // let db = Arc::new(Mutex::new(Database::default()));
+    // let stf = SampleSTF::new();
+    // let block_state_manager = BlockStateManager::<Arc<FrozenStateCheckpoint>, Database>::new(db.clone());
+    // runner(stf, block_state_manager)
 }
