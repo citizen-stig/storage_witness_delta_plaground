@@ -1,50 +1,57 @@
+use std::marker::PhantomData;
+use crate::state::StateTreeManager;
+use crate::types::{Key, Value};
+
 // use crate::state::StateCheckpoint;
 // use crate::types::{Key, Value};
 // use crate::witness::Witness;
 //
-// pub trait STF {
-//     type StateRoot;
-//     type Witness;
-//     type BlobTransaction;
+pub trait STF {
+    type StateRoot;
+    type Witness;
+    type BlobTransaction;
+
+    type Checkpoint;
+
+
+    fn apply_slot<'a, I>(
+        &mut self,
+        pre_state_root: &Self::StateRoot,
+        base: Self::Checkpoint,
+        blobs: I,
+    ) ->
+        (Self::StateRoot,
+         Self::Witness,
+         Self::Checkpoint)
+        where
+            I: IntoIterator<Item=Self::BlobTransaction>;
+}
+
+pub enum Operation {
+    Get(Key),
+    Set(Key, Value),
+}
+
+
+pub struct SampleSTF<Sm: StateTreeManager> {
+    state_root: u64,
+    phantom_sm: PhantomData<Sm>
+}
+
+impl<Sm: StateTreeManager> SampleSTF<Sm> {
+    pub fn new() -> Self {
+        Self {
+            state_root: 0,
+            phantom_sm: PhantomData,
+        }
+    }
+}
+
 //
-//     type Checkpoint;
-//
-//
-//     fn apply_slot<'a, I>(
-//         &mut self,
-//         pre_state_root: &Self::StateRoot,
-//         base: Self::Checkpoint,
-//         blobs: I,
-//     ) ->
-//         (Self::StateRoot,
-//          Self::Witness,
-//          Self::Checkpoint)
-//         where
-//             I: IntoIterator<Item=Self::BlobTransaction>;
-// }
-//
-// pub enum Operation {
-//     Get(Key),
-//     Set(Key, Value),
-// }
-//
-//
-// pub struct SampleSTF {
-//     state_root: u64,
-// }
-//
-// impl SampleSTF {
-//     pub fn new() -> Self {
-//         Self {
-//             state_root: 0,
-//         }
-//     }
-// }
-//
-// //
-// impl SampleSTF {
-//     fn apply_operation(&mut self, base: StateCheckpoint, operation: Operation) -> StateCheckpoint {
-//         let mut working_set = base.to_revertable();
+// impl<Sm: StateTreeManager> SampleSTF<Sm> {
+//     fn apply_operation(&mut self, base: SnapshotImpl<Sm>, operation: Operation) -> SnapshotImpl<Sm> {
+//         // TODO: DB Comes from somewhere
+//         let mut working_set = StateCheckpoint::new(DB::default(), base);
 //         match operation {
 //             Operation::Get(key) => {
 //                 let value = working_set.get(&key);
@@ -64,7 +71,7 @@
 //         return working_set.commit();
 //     }
 // }
-//
+
 // impl STF for SampleSTF {
 //     type StateRoot = u64;
 //     type Witness = Witness;

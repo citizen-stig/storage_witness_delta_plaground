@@ -20,7 +20,9 @@ pub trait Snapshot {
     fn on_top_of(parent: &Self, new_id: Self::Id) -> Self;
 }
 
-// This is something that managers parent/child relation between snapshots and according blockhashes
+
+
+// This is something that managers parent/child relation between snapshots and according block hashes
 pub trait StateTreeManager {
     type Snapshot: Snapshot;
     type BlockHash;
@@ -41,11 +43,23 @@ pub trait StateTreeManager {
 
 type SnapshotId = u64;
 
+// Note:
 pub struct SnapshotImpl<Sm: StateTreeManager> {
     id: <Sm::Snapshot as Snapshot>::Id,
     local_cache: CacheLog,
+    // TODO: Maybe ReadLockGuard???
     manager: Arc<RwLock<Sm>>,
+    // Note 1: it can own manager, but it can
+    // If we don't want multi threading STF execution
+
+    // Note 2: Can it be concrete implementation of BlockStateManager?
 }
+
+
+
+
+
+
 
 impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
     type Key = <Sm::Snapshot as Snapshot>::Key;
@@ -53,6 +67,8 @@ impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
     type Id = <Sm::Snapshot as Snapshot>::Id;
 
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
+        // Check local cache
+
         let manager = self.manager.read().unwrap();
         manager.get_value_recursive(self.id, key)
     }
@@ -98,6 +114,9 @@ type BlockHash = String;
 
 pub struct BlockStateManager<S: Snapshot, P: Persistence> {
     db: Arc<Mutex<P>>,
+
+    // NOTES: Naive implementation, it can be simplified!
+
     // Chain: prev_block -> child_blocks (forks
     chain_forks: HashMap<BlockHash, Vec<BlockHash>>,
     // Reverse: child_block -> parent
@@ -133,6 +152,7 @@ impl<S: Snapshot, P: Persistence<Payload=CacheLog>> BlockStateManager<S, P> {
     }
 }
 
+// In reality it will also have Da trait
 impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for BlockStateManager<S, P>
     where S: Into<CacheLog>
 {
@@ -150,6 +170,7 @@ impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for
                 S::on_top_of(genesis, next_id)
             }
             Some(snapshot_id) => {
+                // TODO: Assert prev_id == parent_snapshot_id.
                 let parent_snapshot = self.snapshots.get(snapshot_id).expect("inconsistent snapshot mapping from parent block hash");
 
                 S::on_top_of(parent_snapshot, next_id)
@@ -204,7 +225,7 @@ impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for
         // Clean up chain state
         match self.to_parent.remove(block_hash) {
             None => {
-                println!("HM, committing")
+                println!("HM, committing what???")
             }
             Some(parent_block_hash) => {
                 let mut to_discard = self.chain_forks.remove(&parent_block_hash).unwrap();
@@ -228,6 +249,9 @@ impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for
         db.commit(payload);
     }
 }
+
+// Combining with existing sov-api
+
 
 
 pub struct StateCheckpoint<Sm: StateTreeManager> {
