@@ -46,3 +46,13 @@ Questions
 
 - Why the earliest node needs to read from DB? Why cannot it be done in the latest?
     - Q from Blaze: Why Frozen and StateCheckpoint both need database instance?
+    - That's not a requirement
+- New Generic in WorkingSet and StateCheckpoint
+  - Probably hide it behind C::Spec::Storage::S ??? 
+  - Rollup shouldn't be aware about 
+  - Preston: It is a little messy to throw ForkTreeManager as top level for app template / module system
+      - Hide  
+- How this design plays out with ZK
+  - ZK Implementation for ForkManager always return none, so WorkingSet reads it from "db", and "db" will have the witness written in native.
+- Preston: Name: ForkManager or ForkTreeManager?
+  - ....

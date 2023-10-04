@@ -15,11 +15,15 @@ pub trait Snapshot {
     type Value: Clone;
     type Id: Default + Copy;
 
+    /// Get own value, value from its own cache
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value>;
+
+    /// Helper method for mapping
     fn get_id(&self) -> Self::Id;
+
+    /// Builder
     fn on_top_of(parent: &Self, new_id: Self::Id) -> Self;
 }
-
 
 
 // This is something that managers parent/child relation between snapshots and according block hashes
@@ -27,17 +31,25 @@ pub trait StateTreeManager {
     type Snapshot: Snapshot;
     type BlockHash;
 
+    // These 3 methods external to STF
+
     /// Creates new snapshot on top of block_hash
     /// If block hash is not present, consider it as genesis
     fn get_from_block(&mut self, block_hash: &Self::BlockHash) -> Self::Snapshot;
 
     /// Adds new snapshot with given block hash to the chain
     /// Implementation is responsible for maintaining connection between block hashes
+    /// NOTE: Maybe we don't need parent, and find parent hash from id
     fn add_snapshot(&mut self, parent_block_hash: &Self::BlockHash, block_hash: &Self::BlockHash, snapshot: Self::Snapshot);
 
-    fn get_value_recursive(&self, snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value>;
-
+    /// Save it
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash);
+
+
+    fn get_value_recursive(&self,
+                           snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id,
+                           key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key,
+    ) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value>;
 }
 
 
@@ -53,12 +65,16 @@ pub struct SnapshotImpl<Sm: StateTreeManager> {
     // If we don't want multi threading STF execution
 
     // Note 2: Can it be concrete implementation of BlockStateManager?
+    //  - Not really, BlockStateManager also generic over Snapshot and Persistence, so then it leaks here
 }
 
 
-
-
-
+impl<Sm: StateTreeManager> SnapshotImpl<Sm> {
+    fn get_value_from_parent(&self, key: &<Sm::Snapshot as Snapshot>::Key) -> Option<<Sm::Snapshot as Snapshot>::Value> {
+        let manager = self.manager.read().unwrap();
+        manager.get_value_recursive(self.id, key)
+    }
+}
 
 
 impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
@@ -67,10 +83,11 @@ impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
     type Id = <Sm::Snapshot as Snapshot>::Id;
 
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
-        // Check local cache
-
-        let manager = self.manager.read().unwrap();
-        manager.get_value_recursive(self.id, key)
+        // let value = self.local_cache.get_value(key);
+        // if let ValueExists::Yes(value) = value {
+        //     return value;
+        // }
+        None
     }
 
     fn get_id(&self) -> Self::Id {
@@ -191,31 +208,6 @@ impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for
         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
     }
 
-    fn get_value_recursive(&self, from_snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value> {
-        // We consider it checked its own cache before locking us.
-
-        let mut parent_id = self.snapshot_ancestors.get(&from_snapshot_id);
-
-        while parent_id.is_some() {
-            // TODO: can be simplified
-            let current_id = parent_id.unwrap();
-            match self.snapshots.get(current_id) {
-                None => {
-                    return None;
-                }
-                Some(snapshot) => {
-                    let value = snapshot.get_value(key);
-                    if value.is_some() {
-                        return value;
-                    }
-                }
-            }
-            parent_id = self.snapshot_ancestors.get(current_id);
-        }
-
-        None
-    }
-
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
         let snapshot_id = self.block_hash_to_id.remove(block_hash).expect("Tried to finalize non-existing snapshot: self.block_hash_to_id");
         let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
@@ -248,17 +240,40 @@ impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for
         let mut db = self.db.lock().unwrap();
         db.commit(payload);
     }
+
+    fn get_value_recursive(&self, from_snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value> {
+        // We consider it checked its own cache before locking us.
+
+        let mut parent_id = self.snapshot_ancestors.get(&from_snapshot_id);
+
+        while parent_id.is_some() {
+            // TODO: can be simplified
+            let current_id = parent_id.unwrap();
+            match self.snapshots.get(current_id) {
+                None => {
+                    return None;
+                }
+                Some(snapshot) => {
+                    let value = snapshot.get_value(key);
+                    if value.is_some() {
+                        return value;
+                    }
+                }
+            }
+            parent_id = self.snapshot_ancestors.get(current_id);
+        }
+
+        None
+    }
 }
 
+
 // Combining with existing sov-api
-
-
-
 pub struct StateCheckpoint<Sm: StateTreeManager> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: SnapshotImpl<Sm>,
+    // parent: SnapshotImpl<Sm>,
 }
 
 impl<Sm: StateTreeManager> From<StateCheckpoint<Sm>> for SnapshotImpl<Sm> {
@@ -369,10 +384,18 @@ impl<Sm: StateTreeManager> WorkingSet<Sm> {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
         let cache_key = CacheKey::from(key.clone());
-
         // Read from own cache
+        let value = self.cache.inner.get(key);
+        if value.is_some() {
+            return value;
+        }
+
 
         // Check parent recursively
+        let _value_from_parent = self.parent.get_value_from_parent(key);
+
+        // Reading from database
+        // Add handling for add_read and putting it in local cache
 
         todo!()
     }
