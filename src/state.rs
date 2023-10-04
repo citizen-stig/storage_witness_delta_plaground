@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::cache::CacheLog;
-use crate::db::Database;
+use crate::db::{Database, Persistence};
+use crate::types::{Key, Value};
 
 pub type DB = Arc<Mutex<Database>>;
 
@@ -30,7 +31,7 @@ trait StateTreeManager {
     /// Implementation is responsible for maintaining connection between block hashes
     fn add_snapshot(&mut self, parent_block_hash: &Self::BlockHash, block_hash: &Self::BlockHash, snapshot: Self::Snapshot);
 
-    fn get_recursive(&self, snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value>;
+    fn get_value_recursive(&self, snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value>;
 
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash);
 }
@@ -51,7 +52,7 @@ impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
 
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
         let manager = self.manager.read().unwrap();
-        manager.get_recursive(self.id, key)
+        manager.get_value_recursive(self.id, key)
     }
 
     fn get_id(&self) -> Self::Id {
@@ -68,9 +69,33 @@ impl<Sm: StateTreeManager> Snapshot for SnapshotImpl<Sm> {
 }
 
 
+impl<Sm: StateTreeManager> From<SnapshotImpl<Sm>> for CacheLog {
+    fn from(value: SnapshotImpl<Sm>) -> Self {
+        value.local_cache
+    }
+}
+
+
+impl Persistence for Database {
+    type Payload = CacheLog;
+
+    fn commit(&mut self, data: Self::Payload) {
+        let writes = data.take_writes();
+        for (key, value) in writes {
+            let key = Key::from(key).to_string();
+            match value {
+                Some(value) => self.set(&key, Value::from(value).to_string()),
+                None => self.delete(&key),
+            }
+        }
+    }
+}
+
+
 type BlockHash = String;
 
-pub struct BlockStateManager<S: Snapshot> {
+pub struct BlockStateManager<S: Snapshot, P: Persistence> {
+    db: Arc<Mutex<P>>,
     // Chain: prev_block -> child_blocks (forks
     chain_forks: HashMap<BlockHash, Vec<BlockHash>>,
     // Reverse: child_block -> parent
@@ -79,7 +104,7 @@ pub struct BlockStateManager<S: Snapshot> {
     // Snapshots
     // snapshot_id => snapshot
     snapshots: HashMap<SnapshotId, S>,
-    // All ancestors of a given snapshot kid => parent.
+    // All ancestors of a given snapshot kid => parent
     snapshot_ancestors: HashMap<SnapshotId, SnapshotId>,
 
     block_hash_to_id: HashMap<BlockHash, SnapshotId>,
@@ -91,9 +116,10 @@ pub struct BlockStateManager<S: Snapshot> {
 }
 
 
-impl<S: Snapshot> BlockStateManager<S> {
-    fn new() -> Self {
+impl<S: Snapshot, P: Persistence<Payload=CacheLog>> BlockStateManager<S, P> {
+    pub fn new(db: Arc<Mutex<P>>) -> Self {
         Self {
+            db,
             chain_forks: Default::default(),
             to_parent: Default::default(),
             snapshots: Default::default(),
@@ -105,7 +131,9 @@ impl<S: Snapshot> BlockStateManager<S> {
     }
 }
 
-impl<S: Snapshot<Id = u64>> StateTreeManager for BlockStateManager<S> {
+impl<S: Snapshot<Id=u64>, P: Persistence<Payload=CacheLog>> StateTreeManager for BlockStateManager<S, P>
+    where S: Into<CacheLog>
+{
     type Snapshot = S;
     type BlockHash = BlockHash;
 
@@ -140,8 +168,8 @@ impl<S: Snapshot<Id = u64>> StateTreeManager for BlockStateManager<S> {
         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
     }
 
-    fn get_recursive(&self, from_snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value> {
-       // We consider it checked its own cache before locking us.
+    fn get_value_recursive(&self, from_snapshot_id: <<Self as StateTreeManager>::Snapshot as Snapshot>::Id, key: &<<Self as StateTreeManager>::Snapshot as Snapshot>::Key) -> Option<<<Self as StateTreeManager>::Snapshot as Snapshot>::Value> {
+        // We consider it checked its own cache before locking us.
 
         let mut parent_id = self.snapshot_ancestors.get(&from_snapshot_id);
 
@@ -166,7 +194,36 @@ impl<S: Snapshot<Id = u64>> StateTreeManager for BlockStateManager<S> {
     }
 
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
+        let snapshot_id = self.block_hash_to_id.remove(block_hash).expect("Tried to finalize non-existing snapshot: self.block_hash_to_id");
+        let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
+        assert_eq!(snapshot_id, snapshot.get_id());
 
+
+        // Clean up chain state
+        match self.to_parent.remove(block_hash) {
+            None => {
+                println!("HM, committing")
+            }
+            Some(parent_block_hash) => {
+                let mut to_discard = self.chain_forks.remove(&parent_block_hash).unwrap();
+                to_discard.retain(|hash| hash != block_hash);
+
+                while !to_discard.is_empty() {
+                    let next_to_discard = to_discard.pop().unwrap();
+                    let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
+                    to_discard.extend(next_children_to_discard);
+
+                    let snapshot_id = self.block_hash_to_id.remove(&next_to_discard).unwrap();
+                    self.to_parent.remove(&next_to_discard).unwrap();
+                    self.snapshots.remove(&snapshot_id).unwrap();
+                }
+            }
+        };
+
+        // Commit snapshot
+        let payload = snapshot.into();
+        let mut db = self.db.lock().unwrap();
+        db.commit(payload);
     }
 }
 
