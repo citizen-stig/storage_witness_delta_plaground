@@ -45,14 +45,14 @@ pub trait ForkTreeManager {
 }
 
 
-pub trait CacheLayerReader {
-    type Snapshot: Snapshot;
-
-    fn get_value_recursive(&self,
-                           snapshot_id: <<Self as CacheLayerReader>::Snapshot as Snapshot>::Id,
-                           key: &<<Self as CacheLayerReader>::Snapshot as Snapshot>::Key,
-    ) -> Option<<<Self as CacheLayerReader>::Snapshot as Snapshot>::Value>;
-}
+// pub trait CacheLayerReader {
+//     type Snapshot: Snapshot;
+//
+//     fn get_value_recursive(&self,
+//                            snapshot_id: <<Self as CacheLayerReader>::Snapshot as Snapshot>::Id,
+//                            key: &<<Self as CacheLayerReader>::Snapshot as Snapshot>::Key,
+//     ) -> Option<<<Self as CacheLayerReader>::Snapshot as Snapshot>::Value>;
+// }
 
 type SnapshotId = u64;
 
@@ -120,8 +120,7 @@ impl<P: Persistence<Payload=CacheLog>> SnapshotRefImpl<P> {
 
     fn get_value(&self, key: &Key) -> Option<Value> {
         let manager = self.manager.read().unwrap();
-
-        None
+        manager.get_value_recursively(self.id, key)
     }
 }
 
@@ -163,6 +162,23 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
 
     pub fn set_genesis(&mut self, snapshot_ref: SnapshotRefImpl<P>) {
         self.genesis = Some(snapshot_ref);
+    }
+
+    fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &Key) -> Option<Value> {
+        let snapshot_id = self.snapshot_ancestors.get(&snapshot_id)?;
+        let mut parent_snapshot = self.snapshots.get(snapshot_id);
+        let cache_key = CacheKey::from(key.clone());
+        while parent_snapshot.is_some() {
+            let snapshot = parent_snapshot.unwrap();
+            let value = snapshot.get_value(&cache_key);
+            if value.is_some() {
+                return value.map(|v| Value::from(v));
+            }
+            let parent_id = self.snapshot_ancestors.get(&snapshot.get_id())?;
+            parent_snapshot = self.snapshots.get(parent_id);
+        }
+
+        None
     }
 }
 
