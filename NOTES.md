@@ -74,7 +74,7 @@ Questions
 
 - Why the earliest node needs to read from DB? Why cannot it be done in the latest?
     - Q from Blaze: Why Frozen and StateCheckpoint both need database instance?
-    - That's not a requirement
+    - A: That's not a requirement
 - New Generic in WorkingSet and StateCheckpoint
   - Probably hide it behind C::Spec::Storage::S ??? 
   - Rollup shouldn't be aware about 

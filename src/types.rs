@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LockResult, RwLock, RwLockReadGuard};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 
 #[derive(Clone, Debug)]
@@ -77,3 +77,22 @@ impl From<CacheValue> for Value {
         }
     }
 }
+
+
+// TODO: Idea for better presenting that ref can only read
+pub struct ReadOnlyLock<T> {
+    lock: Arc<RwLock<T>>,
+}
+
+impl<T> ReadOnlyLock<T> {
+    pub fn new(lock: Arc<RwLock<T>>) -> Self {
+        Self {
+            lock
+        }
+    }
+
+    pub fn read(&self) -> LockResult<RwLockReadGuard<'_, T>> {
+        self.lock.read()
+    }
+}
+

@@ -10,6 +10,8 @@ pub type DB = Arc<Mutex<Database>>;
 
 
 // This is something that goes into STF, STF can build StateCheckpoint out of it.
+// Other potential names:
+// -> cache layer
 pub trait Snapshot {
     type Key;
     type Value: Clone;
@@ -24,6 +26,8 @@ pub trait Snapshot {
 
 
 // This is something that managers parent/child relation between snapshots and according block hashes
+// Potential other names:
+// - ForkManager
 pub trait ForkTreeManager {
     type Snapshot: Snapshot;
     type SnapshotRef;
@@ -45,6 +49,7 @@ pub trait ForkTreeManager {
 }
 
 
+// Potential trait for further generalization
 // pub trait CacheLayerReader {
 //     type Snapshot: Snapshot;
 //
