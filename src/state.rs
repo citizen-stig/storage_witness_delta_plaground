@@ -143,6 +143,7 @@ pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
     // Incremental
     latest_id: SnapshotId,
 
+    // TODO: Replace with self ref.
     genesis: Option<SnapshotRefImpl<P>>,
 }
 
@@ -192,6 +193,7 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         let prev_id = self.latest_id;
         self.latest_id += 1;
         let next_id = self.latest_id;
+        println!("Getting new snapshot ref with id={} from block hash={}", next_id, block_hash);
 
         let genesis = self.genesis.as_ref().unwrap();
 
@@ -205,26 +207,34 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         new_snapshot_ref
     }
 
-    fn add_snapshot(&mut self, parent_block_hash: &Self::BlockHash, block_hash: &Self::BlockHash, snapshot: Self::Snapshot) {
+    fn add_snapshot(&mut self, prev_block_hash: &Self::BlockHash, next_block_hash: &Self::BlockHash, snapshot: Self::Snapshot) {
+        println!("Adding snapshot prev_block_hash={} next_block_hash={} id={}", prev_block_hash, next_block_hash, snapshot.get_id());
         // Update chain
-        self.chain_forks.entry(parent_block_hash.clone()).or_insert(Vec::new()).push(block_hash.clone());
-        self.to_parent.insert(block_hash.clone(), parent_block_hash.clone());
+        self.chain_forks.entry(prev_block_hash.clone()).or_insert(Vec::new()).push(next_block_hash.clone());
+        self.to_parent.insert(next_block_hash.clone(), prev_block_hash.clone());
 
-        let parent_snapshot_id = self.block_hash_to_id.get(parent_block_hash).unwrap();
-        self.snapshot_ancestors.insert(snapshot.get_id().clone(), parent_snapshot_id.clone());
+        if let Some(parent_snapshot_id) = self.block_hash_to_id.get(prev_block_hash) {
+            self.snapshot_ancestors.insert(snapshot.get_id().clone(), parent_snapshot_id.clone());
+        }
+        self.block_hash_to_id.insert(next_block_hash.clone(), snapshot.get_id());
         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
     }
 
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
-        let snapshot_id = self.block_hash_to_id.remove(block_hash).expect("Tried to finalize non-existing snapshot: self.block_hash_to_id");
-        let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
-        assert_eq!(snapshot_id, snapshot.get_id());
-
+        println!("Finalizing block hash {}", block_hash);
+        if let Some(snapshot_id) = self.block_hash_to_id.remove(block_hash) {
+            let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
+            assert_eq!(snapshot_id, snapshot.get_id());
+            // Commit snapshot
+            let payload = snapshot.into();
+            let mut db = self.db.lock().unwrap();
+            db.commit(payload);
+        }
 
         // Clean up chain state
         match self.to_parent.remove(block_hash) {
             None => {
-                println!("HM, committing what???")
+                println!("HM, committing empty ")
             }
             Some(parent_block_hash) => {
                 let mut to_discard = self.chain_forks.remove(&parent_block_hash).unwrap();
@@ -242,10 +252,7 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
             }
         };
 
-        // Commit snapshot
-        let payload = snapshot.into();
-        let mut db = self.db.lock().unwrap();
-        db.commit(payload);
+
     }
 }
 
