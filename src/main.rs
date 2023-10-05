@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use crate::db::{Database};
-use crate::state::{BlockStateManager, ForkTreeManager, SnapshotRefImpl};
+use crate::state::{BlockStateManager, ForkTreeManager};
 use crate::stf::{Operation, SampleSTF, STF};
 use crate::types::{Key, Value};
 
@@ -72,12 +72,7 @@ fn main() {
     let stf: SampleSTF<Database> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
-    let fork_state_manager = Arc::new(RwLock::new(BlockStateManager::new(db.clone())));
-    let dummy_snapshot_ref = SnapshotRefImpl::<Database>::new(0, fork_state_manager.clone());
-    {
-        let mut fm = fork_state_manager.write().unwrap();
-        fm.set_genesis(dummy_snapshot_ref);
-    }
+    let fork_state_manager = BlockStateManager::new_locked(db.clone());
 
     // Desired Chain:
     //       /-> g

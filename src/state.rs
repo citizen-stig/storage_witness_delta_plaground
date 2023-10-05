@@ -148,13 +148,12 @@ pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
     // Incremental
     latest_id: SnapshotId,
 
-    // TODO: Replace with self ref.
-    genesis: Option<SnapshotRefImpl<P>>,
+    self_ref: Option<Arc<RwLock<BlockStateManager<P>>>>,
 }
 
 impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
-    pub fn new(db: Arc<Mutex<P>>) -> Self {
-        Self {
+    pub fn new_locked(db: Arc<Mutex<P>>) -> Arc<RwLock<Self>> {
+        let block_state_manager = Arc::new(RwLock::new(Self {
             db,
             chain_forks: Default::default(),
             to_parent: Default::default(),
@@ -162,12 +161,14 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
             snapshot_ancestors: Default::default(),
             block_hash_to_id: Default::default(),
             latest_id: Default::default(),
-            genesis: None,
+            self_ref: None,
+        }));
+        let self_ref = block_state_manager.clone();
+        {
+            let mut bm = block_state_manager.write().unwrap();
+            bm.self_ref = Some(self_ref);
         }
-    }
-
-    pub fn set_genesis(&mut self, snapshot_ref: SnapshotRefImpl<P>) {
-        self.genesis = Some(snapshot_ref);
+        block_state_manager
     }
 
     fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &Key) -> Option<Value> {
@@ -200,11 +201,9 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         let next_id = self.latest_id;
         println!("Getting new snapshot ref with id={} from block hash={}", next_id, block_hash);
 
-        let genesis = self.genesis.as_ref().unwrap();
-
         let new_snapshot_ref = SnapshotRefImpl {
             id: next_id,
-            manager: genesis.manager.clone(),
+            manager: self.self_ref.clone().unwrap().clone(),
         };
 
         self.snapshot_ancestors.insert(next_id, prev_id);
@@ -256,8 +255,6 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
                 }
             }
         };
-
-
     }
 }
 
