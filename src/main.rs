@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use crate::db::{Database};
@@ -27,7 +28,7 @@ fn runner<Stf, Fm, B, Bh>(
     mut batches: HashMap<Bh, Vec<(Bh, Vec<B>)>>)
     where
     // This constraint is for a map.
-        Bh: Eq + Hash,
+        Bh: Eq + Hash + Display,
         Stf: STF<BlobTransaction=B>,
         Fm: ForkTreeManager<
             SnapshotRef=<Stf as STF>::CheckpointRef, Snapshot=<Stf as STF>::Snapshot,
@@ -37,7 +38,8 @@ fn runner<Stf, Fm, B, Bh>(
 {
     assert_eq!(chain.len(), finalized_blocks.len());
     for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
-        let forks = batches.remove(&current_block_hash).unwrap();
+        println!("== Iterating over block {}", current_block_hash);
+        let forks = batches.remove(&current_block_hash).unwrap_or_default();
         for (child_block_hash, blob) in forks {
             let snapshot_ref = {
                 let mut fm = fork_manager.write().unwrap();
@@ -53,6 +55,7 @@ fn runner<Stf, Fm, B, Bh>(
             let mut fm = fork_manager.write().unwrap();
             fm.finalize_snapshot(&finalized_block_hash);
         }
+        println!("== ========");
     }
 }
 
@@ -76,23 +79,29 @@ fn main() {
         fm.set_genesis(dummy_snapshot_ref);
     }
 
-    // Chain:
+    // Desired Chain:
     //       /-> g
     // a -> b -> c -> d -> e
     //  \-> e -> f -> h
     //       \-> k
 
+    // Current chain
+    // *    *    *
+    // a -> b -> c -> d
+    //
+
     let block_hash_a = "a".to_string();
     let block_hash_b = "b".to_string();
     let block_hash_c = "c".to_string();
-
-    let chain: Vec<String> = vec![block_hash_a.clone(), block_hash_b.clone(), block_hash_c.clone()];
+    let block_hash_d = "d".to_string();
+    let chain: Vec<String> = vec![block_hash_a.clone(), block_hash_b.clone(), block_hash_c.clone(), block_hash_d.clone()];
 
     let finalized: Vec<Option<String>> =
         vec![
             None,
             Some(block_hash_a.clone()),
             Some(block_hash_b.clone()),
+            Some(block_hash_c.clone()),
         ];
 
 
@@ -117,4 +126,9 @@ fn main() {
     };
 
     runner(stf, fork_state_manager, chain, finalized, forks);
+
+    let db = &db.lock().unwrap().data;
+    for (k, v) in db {
+        println!("K={}, V={}", k, v)
+    }
 }

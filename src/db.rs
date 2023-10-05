@@ -6,7 +6,7 @@ use sov_first_read_last_write_cache::cache::CacheLog;
 
 #[derive(Default, Debug)]
 pub struct Database {
-    data: HashMap<String, String>,
+    pub data: HashMap<String, String>,
 }
 
 impl Database {
