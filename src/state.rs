@@ -37,8 +37,6 @@ pub trait ForkTreeManager {
     type SnapshotRef;
     type BlockHash;
 
-    // These 3 methods external to STF
-
     /// Creates new snapshot on top of block_hash
     /// If block hash is not present, consider it as genesis
     fn get_from_block(&mut self, block_hash: &Self::BlockHash) -> Self::SnapshotRef;

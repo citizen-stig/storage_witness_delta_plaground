@@ -81,13 +81,15 @@ Questions
   - Preston: It is a little messy to throw ForkTreeManager as top level for app template / module system
       - Hide  
 - How this design plays out with ZK
-  - ZK Implementation for ForkManager always return none, so WorkingSet reads it from "db", and "db" will have the witness written in native.
+  - ZK Implementations for ForkManager always return none, so WorkingSet reads it from "db", and "db" will have the witness written in native.
 - Preston: Name: ForkManager or ForkTreeManager?
   - ....
 
 
 # 05.10
 
- - Think a little more how ForkTreeManager is going to fit into sov-runner and/or sov-rollup-interface
- - Q: Blazej: Do new traits make sense without module system?
- - 
+ - Do another round of traits API simplification, if it is possible.
+ - Think a little more about how ForkTreeManager is going to fit into sov-runner and/or sov-rollup-interface
+ - Q: Blazej: Do new traits make sense without the module system?
+ - Think how `ForkTreeManager` fits into ZK
+ - Q: Nikolai: What is difference between S::Witness and CacheLog tracking reads?
