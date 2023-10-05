@@ -84,3 +84,10 @@ Questions
   - ZK Implementation for ForkManager always return none, so WorkingSet reads it from "db", and "db" will have the witness written in native.
 - Preston: Name: ForkManager or ForkTreeManager?
   - ....
+
+
+# 05.10
+
+ - Think a little more how ForkTreeManager is going to fit into sov-runner and/or sov-rollup-interface
+ - Q: Blazej: Do new traits make sense without module system?
+ - 
