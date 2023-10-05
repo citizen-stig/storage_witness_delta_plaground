@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::state::StateTreeManager;
+use crate::state::ForkTreeManager;
 use crate::types::{Key, Value};
 
 // use crate::state::StateCheckpoint;
@@ -33,12 +33,12 @@ pub enum Operation {
 }
 
 
-pub struct SampleSTF<Sm: StateTreeManager> {
+pub struct SampleSTF<Sm: ForkTreeManager> {
     state_root: u64,
     phantom_sm: PhantomData<Sm>
 }
 
-impl<Sm: StateTreeManager> SampleSTF<Sm> {
+impl<Sm: ForkTreeManager> SampleSTF<Sm> {
     pub fn new() -> Self {
         Self {
             state_root: 0,
