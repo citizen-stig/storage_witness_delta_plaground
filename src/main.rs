@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::db::{Database};
 use crate::state::{BlockStateManager, ForkTreeManager, SnapshotRefImpl};
 use crate::stf::{Operation, SampleSTF, STF};
+use crate::types::{Key, Value};
 
 mod db;
 mod witness;
@@ -20,6 +21,8 @@ fn runner<Stf, Fm, B, Bh>(
     fork_manager: Arc<RwLock<Fm>>,
     // Simulates arrival of DA blocks
     chain: Vec<Bh>,
+    // Matches length of chain, and when value is present this block is
+    finalized_blocks: Vec<Option<Bh>>,
     // Simulates what forks are created at given parent block
     mut batches: HashMap<Bh, Vec<(Bh, Vec<B>)>>)
     where
@@ -32,7 +35,8 @@ fn runner<Stf, Fm, B, Bh>(
         >,
 // Note: How to put bound on INTO
 {
-    for current_block_hash in chain {
+    assert_eq!(chain.len(), finalized_blocks.len());
+    for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
         let forks = batches.remove(&current_block_hash).unwrap();
         for (child_block_hash, blob) in forks {
             let snapshot_ref = {
@@ -45,9 +49,20 @@ fn runner<Stf, Fm, B, Bh>(
                 fm.add_snapshot(&current_block_hash, &child_block_hash, snapshot);
             }
         }
+        if let Some(finalized_block_hash) = finalized_block_hash {
+            let mut fm = fork_manager.write().unwrap();
+            fm.finalize_snapshot(&finalized_block_hash);
+        }
     }
 }
 
+macro_rules! hashmap {
+    ($( $key:expr => $val:expr ),*) => {{
+        let mut map = std::collections::HashMap::new();
+        $( map.insert($key, $val); )*
+        map
+    }};
+}
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
@@ -61,6 +76,45 @@ fn main() {
         fm.set_genesis(dummy_snapshot_ref);
     }
 
+    // Chain:
+    //       /-> g
+    // a -> b -> c -> d -> e
+    //  \-> e -> f -> h
+    //       \-> k
+
+    let block_hash_a = "a".to_string();
+    let block_hash_b = "b".to_string();
+    let block_hash_c = "c".to_string();
+
+    let chain: Vec<String> = vec![block_hash_a.clone(), block_hash_b.clone(), block_hash_c.clone()];
+
+    let finalized: Vec<Option<String>> =
+        vec![
+            None,
+            Some(block_hash_a.clone()),
+            Some(block_hash_b.clone()),
+        ];
+
+
+    let batch_1 = vec![
+        Operation::Get(Key::from("x".to_string())),
+        Operation::Set(Key::from("x".to_string()), Value::from("1".to_string())),
+    ];
+    let batch_2 = vec![
+        Operation::Get(Key::from("x".to_string())),
+        Operation::Set(Key::from("y".to_string()), Value::from("2".to_string())),
+    ];
+    let batch_3 = vec![
+        Operation::Set(Key::from("x".to_string()), Value::from("3".to_string())),
+        Operation::Get(Key::from("x".to_string())),
+    ];
+
+
     // Bootstrap operations
-    let operations: Vec<Operation> = vec![];
+    let forks = hashmap! {
+        block_hash_a => vec![(block_hash_b.clone(), batch_1)],
+        block_hash_b => vec![(block_hash_c.clone(), batch_2)]
+    };
+
+    runner(stf, fork_state_manager, chain, finalized, forks);
 }

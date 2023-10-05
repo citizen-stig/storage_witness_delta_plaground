@@ -83,6 +83,12 @@ impl Snapshot for FrozenSnapshot {
     }
 }
 
+impl From<FrozenSnapshot> for CacheLog {
+    fn from(value: FrozenSnapshot) -> Self {
+        value.local_cache
+    }
+}
+
 
 impl Persistence for Database {
     type Payload = CacheLog;
@@ -110,6 +116,12 @@ impl<P: Persistence<Payload=CacheLog>> SnapshotRefImpl<P> {
             id,
             manager,
         }
+    }
+
+    fn get_value(&self, key: &Key) -> Option<Value> {
+        let manager = self.manager.read().unwrap();
+
+        None
     }
 }
 
@@ -215,9 +227,9 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         };
 
         // Commit snapshot
-        // let payload = snapshot.into();
-        // let mut db = self.db.lock().unwrap();
-        // db.commit(payload);
+        let payload = snapshot.into();
+        let mut db = self.db.lock().unwrap();
+        db.commit(payload);
     }
 }
 
@@ -344,14 +356,21 @@ impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {
             return value;
         }
 
-
         // Check parent recursively
-        // let _value_from_parent = self.parent.get_value_from_parent(key);
+        let value = match self.parent.get_value(key) {
+            Some(value) => Some(value),
+            None => {
+                let db = self.db.lock().unwrap();
+                let db_key = key.to_string();
+                db.get(&db_key).map(|v| Value::from(v))
+            }
+        };
 
-        // Reading from database
-        // Add handling for add_read and putting it in local cache
+        let cache_value = value.clone().map(|v| CacheValue::from(v.clone()));
+        self.cache.writes.insert(cache_key, cache_value);
+        self.witness.track_operation(key, value.clone());
 
-        todo!()
+        value
     }
 
     pub fn set(&mut self, key: &Key, value: Value) {
