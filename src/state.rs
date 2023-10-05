@@ -219,7 +219,7 @@ pub struct StateCheckpoint<P: Persistence<Payload=CacheLog>> {
 
 
 impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
-    fn new(db: DB, parent: SnapshotRefImpl<P>) -> Self {
+    pub fn new(db: DB, parent: SnapshotRefImpl<P>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -237,7 +237,7 @@ impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
         }
     }
 
-    fn freeze(mut self) -> (Witness, FrozenSnapshot) {
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
             id: self.parent.id,
