@@ -1,6 +1,13 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, RwLock};
+use crate::db::{Database};
+use crate::state::{BlockStateManager, ForkTreeManager, SnapshotRefImpl};
+use crate::stf::{Operation, SampleSTF, STF};
+
 mod db;
 mod witness;
 mod state;
@@ -8,53 +15,52 @@ mod block_state_manager;
 mod stf;
 mod types;
 
-// use std::sync::{Arc, Mutex};
-// use crate::block_state_manager::BlockStateManager;
-//
-// use crate::db::{Database, Persistence};
-// use crate::state::{BlockStateSnapshot, FrozenStateCheckpoint};
-// use crate::stf::{SampleSTF, STF};
-
-/// Requirements
-///  - Consumers of "StateSnapshot" trait should be able to use it without knowing about manager and only returning one snapshot that needs to be committed.
-///  - Consumers of "StateSnapshot" should not be able to persist snapshot(s) they are using
-///  - SnapshotManager should be able to persist particular snapshot and it's parents, and invalidate all orphans
-
-
-/// Requirement from rollup-interface
-///  - Should make minimal restriction about implementation.
-///  - Only should highlight what is expected from STF::apply_slot, basically to be stateless
-///
-
-
-
-/// Requirements from sov-modules-api / sov-state
-///
-/// - witness should be only tracked only for accesses outside of current snapshot
-/// - snapshot should be able to correctly read data
-///     from previous snapshot before resorting to the database
-/// - snapshot should treat reading from previous snapshot as reading from database,
-///     saving it in its own cache and updating witness
-/// - whole machinery need to have type safety,
-///     same as we use `WorkingSet::commit()` and `StateCheckpoint::to_revertable()`,
-///     so we know when state is "clean"
-///  - AppTemplate should be use this solution
-///
-
-// fn runner<Stf, S, P>(stf: Stf, block_state_manager: BlockStateManager<S, P>)
-//     where
-//         S: BlockStateSnapshot,
-//         P: Persistence<Payload=S>,
-//         Stf: STF<Checkpoint=S::Checkpoint>,
-//         Stf::Checkpoint: Into<S>,
-// {
-//     todo!("")
-// }
+fn runner<Stf, Fm, B, Bh>(
+    mut stf: Stf,
+    fork_manager: Arc<RwLock<Fm>>,
+    // Simulates arrival of DA blocks
+    chain: Vec<Bh>,
+    // Simulates what forks are created at given parent block
+    mut batches: HashMap<Bh, Vec<(Bh, Vec<B>)>>)
+    where
+    // This constraint is for a map.
+        Bh: Eq + Hash,
+        Stf: STF<BlobTransaction=B>,
+        Fm: ForkTreeManager<
+            SnapshotRef=<Stf as STF>::CheckpointRef, Snapshot=<Stf as STF>::Snapshot,
+            BlockHash=Bh
+        >,
+// Note: How to put bound on INTO
+{
+    for current_block_hash in chain {
+        let forks = batches.remove(&current_block_hash).unwrap();
+        for (child_block_hash, blob) in forks {
+            let snapshot_ref = {
+                let mut fm = fork_manager.write().unwrap();
+                fm.get_from_block(&current_block_hash)
+            };
+            let (_state_root, _witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
+            {
+                let mut fm = fork_manager.write().unwrap();
+                fm.add_snapshot(&current_block_hash, &child_block_hash, snapshot);
+            }
+        }
+    }
+}
 
 
 fn main() {
-    // let db = Arc::new(Mutex::new(Database::default()));
-    // let stf = SampleSTF::new();
-    // let block_state_manager = BlockStateManager::<Arc<FrozenStateCheckpoint>, Database>::new(db.clone());
-    // runner(stf, block_state_manager)
+    let db = Arc::new(Mutex::new(Database::default()));
+    let stf: SampleSTF<Database> = SampleSTF::new(db.clone());
+
+    // Bootstrap fork_state_manager
+    let fork_state_manager = Arc::new(RwLock::new(BlockStateManager::new(db.clone())));
+    let dummy_snapshot_ref = SnapshotRefImpl::<Database>::new(0, fork_state_manager.clone());
+    {
+        let mut fm = fork_state_manager.write().unwrap();
+        fm.set_genesis(dummy_snapshot_ref);
+    }
+
+    // Bootstrap operations
+    let operations: Vec<Operation> = vec![];
 }

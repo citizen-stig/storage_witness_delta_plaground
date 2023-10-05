@@ -104,6 +104,15 @@ pub struct SnapshotRefImpl<P: Persistence<Payload=CacheLog>> {
     manager: Arc<RwLock<BlockStateManager<P>>>,
 }
 
+impl<P: Persistence<Payload=CacheLog>> SnapshotRefImpl<P> {
+    pub fn new(id: SnapshotId, manager: Arc<RwLock<BlockStateManager<P>>>) -> Self {
+        Self {
+            id,
+            manager,
+        }
+    }
+}
+
 type BlockHash = String;
 
 pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
@@ -138,6 +147,10 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
             latest_id: Default::default(),
             genesis: None,
         }
+    }
+
+    pub fn set_genesis(&mut self, snapshot_ref: SnapshotRefImpl<P>) {
+        self.genesis = Some(snapshot_ref);
     }
 }
 

@@ -16,7 +16,6 @@ pub trait STF {
 
     fn apply_slot<'a, I>(
         &mut self,
-        pre_state_root: &Self::StateRoot,
         base: Self::CheckpointRef,
         blobs: I,
     ) ->
@@ -82,7 +81,7 @@ impl<P: Persistence<Payload=CacheLog>> STF for SampleSTF<P> {
     type CheckpointRef = SnapshotRefImpl<P>;
     type Snapshot = FrozenSnapshot;
 
-    fn apply_slot<'a, I>(&mut self, pre_state_root: &Self::StateRoot, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
+    fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);
         for operation in blobs {
             checkpoint = self.apply_operation(checkpoint, operation);
