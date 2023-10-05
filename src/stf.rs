@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use sov_first_read_last_write_cache::cache::CacheLog;
 use crate::db::Persistence;
-use crate::state::{DB, FrozenSnapshot, SnapshotRefImpl, StateCheckpoint};
+use crate::state::{DB, FrozenSnapshot, TreeManagerSnapshotQuery, StateCheckpoint};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
 
@@ -78,7 +78,7 @@ impl<P: Persistence<Payload=CacheLog>> STF for SampleSTF<P> {
     type StateRoot = u64;
     type Witness = Witness;
     type BlobTransaction = Operation;
-    type CheckpointRef = SnapshotRefImpl<P>;
+    type CheckpointRef = TreeManagerSnapshotQuery<P>;
     type Snapshot = FrozenSnapshot;
 
     fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {

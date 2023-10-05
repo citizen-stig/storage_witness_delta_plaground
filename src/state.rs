@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::db::{Database, Persistence};
-use crate::types::{Key, Value};
+use crate::types::{Key, ReadOnlyLock, Value};
 use crate::witness::Witness;
 
 pub type DB = Arc<Mutex<Database>>;
@@ -30,6 +30,7 @@ pub trait Snapshot {
 // - ForkManager
 pub trait ForkTreeManager {
     type Snapshot: Snapshot;
+    // Snapshot ref is capable to query data in all ancestor
     type SnapshotRef;
     type BlockHash;
 
@@ -41,10 +42,10 @@ pub trait ForkTreeManager {
 
     /// Adds new snapshot with given block hash to the chain
     /// Implementation is responsible for maintaining connection between block hashes
-    /// NOTE: Maybe we don't need parent, and find parent hash from id
+    /// NOTE: Maybe we don't need parent, and find parent hash from snapshot id?
     fn add_snapshot(&mut self, parent_block_hash: &Self::BlockHash, block_hash: &Self::BlockHash, snapshot: Self::Snapshot);
 
-    /// Save it
+    /// Cleans up chain graph and saves state associated with block hash, if present
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash);
 }
 
@@ -110,13 +111,13 @@ impl Persistence for Database {
     }
 }
 
-pub struct SnapshotRefImpl<P: Persistence<Payload=CacheLog>> {
+pub struct TreeManagerSnapshotQuery<P: Persistence<Payload=CacheLog>> {
     id: SnapshotId,
-    manager: Arc<RwLock<BlockStateManager<P>>>,
+    manager: ReadOnlyLock<BlockStateManager<P>>,
 }
 
-impl<P: Persistence<Payload=CacheLog>> SnapshotRefImpl<P> {
-    pub fn new(id: SnapshotId, manager: Arc<RwLock<BlockStateManager<P>>>) -> Self {
+impl<P: Persistence<Payload=CacheLog>> TreeManagerSnapshotQuery<P> {
+    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P>>) -> Self {
         Self {
             id,
             manager,
@@ -187,12 +188,16 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
 
         None
     }
+
+    pub fn stop(mut self) {
+        self.self_ref = None
+    }
 }
 
 
 impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
     type Snapshot = FrozenSnapshot;
-    type SnapshotRef = SnapshotRefImpl<P>;
+    type SnapshotRef = TreeManagerSnapshotQuery<P>;
     type BlockHash = BlockHash;
 
     fn get_from_block(&mut self, block_hash: &Self::BlockHash) -> Self::SnapshotRef {
@@ -201,9 +206,9 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         let next_id = self.latest_id;
         println!("Getting new snapshot ref with id={} from block hash={}", next_id, block_hash);
 
-        let new_snapshot_ref = SnapshotRefImpl {
+        let new_snapshot_ref = TreeManagerSnapshotQuery {
             id: next_id,
-            manager: self.self_ref.clone().unwrap().clone(),
+            manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
         };
 
         self.snapshot_ancestors.insert(next_id, prev_id);
@@ -264,12 +269,12 @@ pub struct StateCheckpoint<P: Persistence<Payload=CacheLog>> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: SnapshotRefImpl<P>,
+    parent: TreeManagerSnapshotQuery<P>,
 }
 
 
 impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
-    pub fn new(db: DB, parent: SnapshotRefImpl<P>) -> Self {
+    pub fn new(db: DB, parent: TreeManagerSnapshotQuery<P>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -368,7 +373,7 @@ pub struct WorkingSet<P: Persistence<Payload=CacheLog>> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: SnapshotRefImpl<P>,
+    parent: TreeManagerSnapshotQuery<P>,
 }
 
 impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {

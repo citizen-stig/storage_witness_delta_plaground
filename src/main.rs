@@ -38,9 +38,10 @@ fn runner<Stf, Fm, B, Bh>(
 {
     assert_eq!(chain.len(), finalized_blocks.len());
     for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
-        println!("== Iterating over block {}", current_block_hash);
+        println!("== Iterating over current block {}", current_block_hash);
         let forks = batches.remove(&current_block_hash).unwrap_or_default();
         for (child_block_hash, blob) in forks {
+            println!("Executing fork from prev={} to next={}", current_block_hash, child_block_hash);
             let snapshot_ref = {
                 let mut fm = fork_manager.write().unwrap();
                 fm.get_from_block(&current_block_hash)
@@ -74,11 +75,7 @@ fn main() {
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());
 
-    // Desired Chain:
-    //       /-> g
-    // a -> b -> c -> d -> e
-    //  \-> e -> f -> h
-    //       \-> k
+
 
     // Current chain
     // *    *    *
@@ -107,9 +104,10 @@ fn main() {
     let batch_2 = vec![
         Operation::Get(Key::from("x".to_string())),
         Operation::Set(Key::from("y".to_string()), Value::from("2".to_string())),
+        Operation::Set(Key::from("x".to_string()), Value::from("3".to_string())),
     ];
     let batch_3 = vec![
-        Operation::Set(Key::from("x".to_string()), Value::from("3".to_string())),
+        Operation::Set(Key::from("x".to_string()), Value::from("4".to_string())),
         Operation::Get(Key::from("x".to_string())),
     ];
 
@@ -117,7 +115,8 @@ fn main() {
     // Bootstrap operations
     let forks = hashmap! {
         block_hash_a => vec![(block_hash_b.clone(), batch_1)],
-        block_hash_b => vec![(block_hash_c.clone(), batch_2)]
+        block_hash_b => vec![(block_hash_c.clone(), batch_2)],
+        block_hash_c => vec![(block_hash_d.clone(), batch_3)]
     };
 
     runner(stf, fork_state_manager, chain, finalized, forks);
@@ -126,5 +125,12 @@ fn main() {
     for (k, v) in db {
         println!("K={}, V={}", k, v)
     }
+
+
+    // Desired Chain:
+    //       /-> g
+    // a -> b -> c -> d -> e
+    //  \-> e -> f -> h
+    //       \-> k
 }
 
