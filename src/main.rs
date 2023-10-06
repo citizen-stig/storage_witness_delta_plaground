@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
+use crate::block_state_manager::BlockStateManager;
 use crate::db::{Database};
-use crate::state::{BlockStateManager, ForkTreeManager};
+use crate::rollup_interface::ForkTreeManager;
 use crate::stf::{Operation, SampleSTF, STF};
 use crate::types::{Key, Value};
 
@@ -16,6 +17,7 @@ mod state;
 mod block_state_manager;
 mod stf;
 mod types;
+mod rollup_interface;
 
 fn runner<Stf, Fm, B, Bh>(
     mut stf: Stf,
