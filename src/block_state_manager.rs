@@ -50,7 +50,7 @@ pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
 
     // Snapshots
     // snapshot_id => snapshot
-    snapshots: HashMap<SnapshotId, FrozenSnapshot<TreeManagerSnapshotQuery<P>>>,
+    snapshots: HashMap<SnapshotId, FrozenSnapshot<SnapshotId>>,
 
     // L1 forks representation
     // Chain: prev_block -> child_blocks (forks
@@ -118,7 +118,7 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
 
 
 impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
-    type Snapshot = FrozenSnapshot<TreeManagerSnapshotQuery<P>>;
+    type Snapshot = FrozenSnapshot<SnapshotId>;
     type SnapshotRef = TreeManagerSnapshotQuery<P>;
     type BlockHash = BlockHash;
 
@@ -189,7 +189,7 @@ mod tests {
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot<TreeManagerSnapshotQuery<Database>> {
+    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot<SnapshotId> {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
