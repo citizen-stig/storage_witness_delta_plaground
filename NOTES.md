@@ -93,3 +93,11 @@ Questions
  - Q: Blazej: Do new traits make sense without the module system?
  - Think how `ForkTreeManager` fits into ZK
  - Q: Nikolai: What is difference between S::Witness and CacheLog tracking reads?
+
+
+# 06.10
+
+    - Do another round of traits API simplification, if it is possible.
+        - Write tests to see edge cases
+ - Remove extra method parameters from ForkTreeManager
+ - Idea: Try to make Snapshot generic for snapshot ref instead of concrete implementation.

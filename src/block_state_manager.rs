@@ -139,3 +139,100 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::db::Database;
+    use crate::state::{DB, StateCheckpoint};
+    use super::*;
+
+    #[test]
+    fn new() {
+        let db = DB::default();
+        let state_manager = BlockStateManager::new_locked(db.clone());
+        let state_manager = state_manager.write().unwrap();
+        assert!(state_manager.self_ref.is_some());
+        {
+            let db = db.lock().unwrap();
+            assert!(db.data.is_empty());
+        }
+    }
+
+    fn write_value(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot {
+        let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
+        let mut working_set = checkpoint.to_revertable();
+        for (key, value) in values {
+            let key = Key::from(key.to_string());
+            let value = Value::from(value.to_string());
+            working_set.set(&key, value);
+        }
+        let checkpoint = working_set.commit();
+        let (_witness, snapshot) = checkpoint.freeze();
+        snapshot
+    }
+
+    #[test]
+    fn linear_progression_with_2_blocks_delay() {
+        let db = DB::default();
+        let state_manager = BlockStateManager::new_locked(db.clone());
+        let mut state_manager = state_manager.write().unwrap();
+        let genesis_block = "genesis".to_string();
+        let block_a = "a".to_string();
+        let block_b = "b".to_string();
+        let block_c = "c".to_string();
+
+        // Block A
+        let block_a_values = vec![
+            ("x", "1"),
+            ("y", "2"),
+        ];
+        let snapshot_ref = state_manager.get_from_block(&genesis_block);
+        let snapshot = write_value(db.clone(), snapshot_ref, &block_a_values);
+        state_manager.add_snapshot(&genesis_block, &block_a, snapshot);
+        {
+            assert!(db.lock().unwrap().data.is_empty());
+        }
+
+        // Block B
+        let block_b_values = vec![
+            ("x", "3"),
+            ("z", "4"),
+        ];
+        let snapshot_ref = state_manager.get_from_block(&block_a);
+        let snapshot = write_value(db.clone(), snapshot_ref, &block_b_values);
+        state_manager.add_snapshot(&block_a, &block_b, snapshot);
+        {
+            assert!(db.lock().unwrap().data.is_empty());
+        }
+        // Finalizing A
+        state_manager.finalize_snapshot(&block_a);
+        {
+            let db = db.lock().unwrap();
+            assert!(!db.data.is_empty());
+            assert_eq!(Some("1".to_string()), db.get("x"));
+            assert_eq!(Some("2".to_string()), db.get("y"));
+            assert_eq!(None, db.get("z"));
+        }
+
+        // Block C
+        let block_c_values = vec![
+            ("x", "5"),
+            ("z", "6"),
+        ];
+        let snapshot_ref = state_manager.get_from_block(&block_b);
+        let snapshot = write_value(db.clone(), snapshot_ref, &block_c_values);
+        state_manager.add_snapshot(&block_b, &block_c, snapshot);
+        // Finalizing B
+        state_manager.finalize_snapshot(&block_b);
+
+    }
+
+    #[test]
+    fn fork_added() {}
+
+    #[test]
+    fn adding_alien_snapshot() {}
+
+    #[test]
+    fn finalizing_alien_block() {}
+}
