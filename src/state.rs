@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Formatter;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
@@ -27,6 +28,12 @@ pub type SnapshotId = u64;
 pub struct FrozenSnapshot {
     id: SnapshotId,
     local_cache: CacheLog,
+}
+
+impl std::fmt::Debug for FrozenSnapshot {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FrozenSnapshot<Id={:?}>", self.id)
+    }
 }
 
 impl Snapshot for FrozenSnapshot {

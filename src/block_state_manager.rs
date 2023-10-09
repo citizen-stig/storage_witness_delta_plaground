@@ -8,6 +8,7 @@ use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
 
+#[derive(Debug)]
 pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
     // Storage
     db: Arc<Mutex<P>>,
@@ -65,6 +66,13 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
     pub fn stop(mut self) {
         self.self_ref = None
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.chain_forks.is_empty()
+            && self.blocks_to_parent.is_empty()
+            && self.block_hash_to_snapshot_id.is_empty()
+            && self.snapshots.is_empty()
+    }
 }
 
 
@@ -114,7 +122,10 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         }
 
         let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
-        let mut to_discard = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks");
+        let mut to_discard: Vec<_> = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks")
+            .into_iter()
+            .filter(|bh| bh != block_hash)
+            .collect();
         while !to_discard.is_empty() {
             let next_to_discard = to_discard.pop().unwrap();
             let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
@@ -165,6 +176,8 @@ mod tests {
         let db = DB::default();
         let state_manager = BlockStateManager::new_locked(db.clone());
         let mut state_manager = state_manager.write().unwrap();
+        assert!(state_manager.is_empty());
+        println!("NEW: {:?}", state_manager);
         let genesis_block = "genesis".to_string();
         let block_a = "a".to_string();
         let block_b = "b".to_string();
@@ -176,11 +189,14 @@ mod tests {
             ("y", "2"),
         ];
         let snapshot_ref = state_manager.get_new_ref(&genesis_block, &block_a);
+        assert!(!state_manager.is_empty());
         let snapshot = write_values(db.clone(), snapshot_ref, &block_a_values);
         state_manager.add_snapshot(snapshot);
+        assert!(!state_manager.is_empty());
         {
             assert!(db.lock().unwrap().data.is_empty());
         }
+        println!("AFTER A: {:?}", state_manager);
 
         // Block B
         let block_b_values = vec![
@@ -193,6 +209,7 @@ mod tests {
         {
             assert!(db.lock().unwrap().data.is_empty());
         }
+        println!("AFTER B: {:?}", state_manager);
         // Finalizing A
         state_manager.finalize_snapshot(&block_a);
         {
@@ -202,6 +219,7 @@ mod tests {
             assert_eq!(Some("2".to_string()), db.get("y"));
             assert_eq!(None, db.get("z"));
         }
+        println!("AFTER FINALIZING A: {:?}", state_manager);
 
         // Block C
         let block_c_values = vec![
@@ -211,18 +229,41 @@ mod tests {
         let snapshot_ref = state_manager.get_new_ref(&block_b, &block_c);
         let snapshot = write_values(db.clone(), snapshot_ref, &block_c_values);
         state_manager.add_snapshot(snapshot);
+        println!("AFTER C: {:?}", state_manager);
         // Finalizing B
         state_manager.finalize_snapshot(&block_b);
+        assert!(!state_manager.is_empty());
+        {
+            let db = db.lock().unwrap();
+            assert!(!db.data.is_empty());
+            assert_eq!(Some("3".to_string()), db.get("x"));
+            assert_eq!(Some("2".to_string()), db.get("y"));
+            assert_eq!(Some("4".to_string()), db.get("z"));
+        }
 
+        state_manager.finalize_snapshot(&block_c);
         // TODO: Finalize everything, it should be clean
+        println!("AFTER FINALIZING C: {:?}", state_manager);
+        assert!(state_manager.is_empty());
     }
 
     #[test]
+    #[ignore = "TBD"]
     fn fork_added() {}
 
     #[test]
+    #[ignore = "TBD"]
     fn adding_alien_snapshot() {}
 
     #[test]
+    #[ignore = "TBD"]
     fn finalizing_alien_block() {}
+
+    #[test]
+    #[ignore = "TBD"]
+    fn finalizing_same_block_hash_twice() {}
+
+    #[test]
+    #[ignore = "TBD"]
+    fn requesting_ref_from_same_block_twice() {}
 }
