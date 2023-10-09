@@ -5,7 +5,7 @@
 pub trait Snapshot {
     type Key;
     type Value: Clone;
-    type Id: Default + Copy;
+    type Id: Default + Copy + std::fmt::Debug;  // Debug only for convenience
 
     /// Get own value, value from its own cache
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value>;

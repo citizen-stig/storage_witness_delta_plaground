@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use crate::block_state_manager::BlockStateManager;
+use crate::block_state_manager::{BlockStateManager, TreeManagerSnapshotQuery};
 use crate::db::{Database};
 use crate::rollup_interface::ForkTreeManager;
 use crate::stf::{Operation, SampleSTF, STF};
@@ -72,7 +72,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, TreeManagerSnapshotQuery<Database>> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());

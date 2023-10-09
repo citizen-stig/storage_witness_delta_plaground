@@ -3,10 +3,9 @@ use std::fmt::Formatter;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::block_state_manager::BlockStateManager;
 use crate::db::{Database, Persistence};
 use crate::rollup_interface::Snapshot;
-use crate::types::{Key, ReadOnlyLock, Value};
+use crate::types::{Key, Value};
 use crate::witness::Witness;
 
 pub type DB = Arc<Mutex<Database>>;
@@ -25,18 +24,18 @@ pub type DB = Arc<Mutex<Database>>;
 pub type SnapshotId = u64;
 
 
-pub struct FrozenSnapshot {
-    id: SnapshotId,
+pub struct FrozenSnapshot<S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> {
+    id: S::Id,
     local_cache: CacheLog,
 }
 
-impl std::fmt::Debug for FrozenSnapshot {
+impl<S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> std::fmt::Debug for FrozenSnapshot<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FrozenSnapshot<Id={:?}>", self.id)
+        write!(f, "FrozenSnapshot<Id={:?}>", self.get_id())
     }
 }
 
-impl Snapshot for FrozenSnapshot {
+impl<S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> Snapshot for FrozenSnapshot<S> {
     type Key = CacheKey;
     type Value = CacheValue;
     type Id = SnapshotId;
@@ -57,8 +56,8 @@ impl Snapshot for FrozenSnapshot {
     }
 }
 
-impl From<FrozenSnapshot> for CacheLog {
-    fn from(value: FrozenSnapshot) -> Self {
+impl<S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> From<FrozenSnapshot<S>> for CacheLog {
+    fn from(value: FrozenSnapshot<S>) -> Self {
         value.local_cache
     }
 }
@@ -79,38 +78,17 @@ impl Persistence for Database {
     }
 }
 
-pub struct TreeManagerSnapshotQuery<P: Persistence<Payload=CacheLog>> {
-    pub id: SnapshotId,
-    pub manager: ReadOnlyLock<BlockStateManager<P>>,
-}
-
-
-impl<P: Persistence<Payload=CacheLog>> TreeManagerSnapshotQuery<P> {
-    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P>>) -> Self {
-        Self {
-            id,
-            manager,
-        }
-    }
-
-    fn get_value(&self, key: &Key) -> Option<Value> {
-        let manager = self.manager.read().unwrap();
-        manager.get_value_recursively(self.id, key)
-    }
-}
-
-
 // Combining with existing sov-api
-pub struct StateCheckpoint<P: Persistence<Payload=CacheLog>> {
+pub struct StateCheckpoint<S: Snapshot> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: TreeManagerSnapshotQuery<P>,
+    parent: S,
 }
 
 
-impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
-    pub fn new(db: DB, parent: TreeManagerSnapshotQuery<P>) -> Self {
+impl<S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> StateCheckpoint<S> {
+    pub fn new(db: DB, parent: S) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -119,7 +97,7 @@ impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<P> {
+    pub fn to_revertable(self) -> WorkingSet<S> {
         WorkingSet {
             db: self.db,
             cache: RevertableWriter::new(self.cache),
@@ -128,10 +106,10 @@ impl<P: Persistence<Payload=CacheLog>> StateCheckpoint<P> {
         }
     }
 
-    pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<S>) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
-            id: self.parent.id,
+            id: self.parent.get_id(),
             local_cache: self.cache,
         };
 
@@ -205,14 +183,14 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Persistence<Payload=CacheLog>> {
+pub struct WorkingSet<S: Snapshot<Key=CacheKey, Value=CacheValue>> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: TreeManagerSnapshotQuery<P>,
+    parent: S,
 }
 
-impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {
+impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> WorkingSet<S> {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
         let cache_key = CacheKey::from(key.clone());
@@ -223,21 +201,23 @@ impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {
         }
 
         // Check parent recursively
-        let value = match self.parent.get_value(key) {
+        let cache_value = match self.parent.get_value(&cache_key) {
             Some(value) => Some(value),
             None => {
                 let db = self.db.lock().unwrap();
                 let db_key = key.to_string();
-                db.get(&db_key).map(|v| Value::from(v))
+                // TODO: Ugly
+                db.get(&db_key).map(|v| CacheValue::from(Value::from(v)))
             }
         };
 
-        let cache_value = value.clone().map(|v| CacheValue::from(v.clone()));
-        self.cache.writes.insert(cache_key, cache_value);
+        let cache_value = cache_value.clone();
+        self.cache.writes.insert(cache_key, cache_value.clone());
+        let value = cache_value.map(Value::from);
         self.witness.track_operation(key, value.clone());
-
         value
     }
+
 
     pub fn set(&mut self, key: &Key, value: Value) {
         self.witness.track_operation(key, Some(value.clone()));
@@ -245,7 +225,7 @@ impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {
     }
 
 
-    pub fn commit(self) -> StateCheckpoint<P> {
+    pub fn commit(self) -> StateCheckpoint<S> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.commit(),
@@ -254,7 +234,7 @@ impl<P: Persistence<Payload=CacheLog>> WorkingSet<P> {
         }
     }
 
-    pub fn revert(self) -> StateCheckpoint<P> {
+    pub fn revert(self) -> StateCheckpoint<S> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.revert(),

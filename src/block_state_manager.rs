@@ -1,13 +1,43 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::cache::CacheLog;
-use sov_first_read_last_write_cache::CacheKey;
+use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::db::Persistence;
 use crate::rollup_interface::{ForkTreeManager, Snapshot};
-use crate::state::{FrozenSnapshot, SnapshotId, TreeManagerSnapshotQuery};
+use crate::state::{FrozenSnapshot, SnapshotId};
 use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
+
+pub struct TreeManagerSnapshotQuery<P: Persistence<Payload=CacheLog>> {
+    pub id: SnapshotId,
+    pub manager: ReadOnlyLock<BlockStateManager<P>>,
+}
+
+
+impl<P: Persistence<Payload=CacheLog>> TreeManagerSnapshotQuery<P> {
+    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P>>) -> Self {
+        Self {
+            id,
+            manager,
+        }
+    }
+}
+
+impl<P: Persistence<Payload=CacheLog>> Snapshot for TreeManagerSnapshotQuery<P> {
+    type Key = CacheKey;
+    type Value = CacheValue;
+    type Id = SnapshotId;
+
+    fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
+        let manager = self.manager.read().unwrap();
+        manager.get_value_recursively(self.id, key)
+    }
+
+    fn get_id(&self) -> Self::Id {
+        self.id.clone()
+    }
+}
 
 #[derive(Debug)]
 pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
@@ -19,7 +49,7 @@ pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
 
     // Snapshots
     // snapshot_id => snapshot
-    snapshots: HashMap<SnapshotId, FrozenSnapshot>,
+    snapshots: HashMap<SnapshotId, FrozenSnapshot<TreeManagerSnapshotQuery<P>>>,
 
     // L1 forks representation
     // Chain: prev_block -> child_blocks (forks
@@ -28,7 +58,6 @@ pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
     blocks_to_parent: HashMap<BlockHash, BlockHash>,
     block_hash_to_snapshot_id: HashMap<BlockHash, SnapshotId>,
 
-    //
     // Used for querying
     snapshot_id_to_block_hash: HashMap<SnapshotId, BlockHash>,
 
@@ -54,19 +83,17 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
         block_state_manager
     }
 
-    pub fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &Key) -> Option<Value> {
+    pub fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &CacheKey) -> Option<CacheValue> {
         // Will this return None?
         let current_block_hash = self.snapshot_id_to_block_hash.get(&snapshot_id)?;
         let parent_block_hash = self.blocks_to_parent.get(current_block_hash)?;
         let parent_snapshot_id = self.block_hash_to_snapshot_id.get(parent_block_hash).unwrap();
         let mut parent_snapshot = self.snapshots.get(parent_snapshot_id);
-        // TODO: How to get around that?
-        let cache_key = CacheKey::from(key.clone());
         while parent_snapshot.is_some() {
             let snapshot = parent_snapshot.unwrap();
-            let value = snapshot.get_value(&cache_key);
+            let value = snapshot.get_value(key);
             if value.is_some() {
-                return value.map(|v| Value::from(v));
+                return value;
             }
             let parent_block_hash = self.blocks_to_parent.get(current_block_hash)?;
             let parent_id = self.block_hash_to_snapshot_id.get(parent_block_hash).unwrap();
@@ -90,7 +117,7 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
 
 
 impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
-    type Snapshot = FrozenSnapshot;
+    type Snapshot = FrozenSnapshot<TreeManagerSnapshotQuery<P>>;
     type SnapshotRef = TreeManagerSnapshotQuery<P>;
     type BlockHash = BlockHash;
 
@@ -161,7 +188,7 @@ mod tests {
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot {
+    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot<TreeManagerSnapshotQuery<Database>> {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
@@ -226,7 +253,7 @@ mod tests {
             let snapshot = write_values(db.clone(), snapshot_ref, &block_b_values);
             let snapshot_id_b = snapshot.get_id();
             state_manager.add_snapshot(snapshot);
-            assert_eq!(Some(Value::from("1".to_string())), state_manager.get_value_recursively(snapshot_id_b, &Key::from("x".to_string())));
+            assert_eq!(Some(CacheValue::from(Value::from("1".to_string()))), state_manager.get_value_recursively(snapshot_id_b, &CacheKey::from(Key::from("x".to_string()))));
             {
                 assert!(db.lock().unwrap().data.is_empty());
             }
