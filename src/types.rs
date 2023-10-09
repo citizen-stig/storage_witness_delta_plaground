@@ -39,7 +39,7 @@ impl From<CacheKey> for Key {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Value {
     pub value: Arc<Vec<u8>>,
 }
