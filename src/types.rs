@@ -81,7 +81,6 @@ impl From<CacheValue> for Value {
 }
 
 
-// TODO: Idea for better presenting that ref can only read
 pub struct ReadOnlyLock<T> {
     lock: Arc<RwLock<T>>,
 }

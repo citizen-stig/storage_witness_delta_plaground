@@ -9,18 +9,6 @@ use crate::types::{Key, Value};
 use crate::witness::Witness;
 
 pub type DB = Arc<Mutex<Database>>;
-
-
-// Potential trait for further generalization
-// pub trait CacheLayerReader {
-//     type Snapshot: Snapshot;
-//
-//     fn get_value_recursive(&self,
-//                            snapshot_id: <<Self as CacheLayerReader>::Snapshot as Snapshot>::Id,
-//                            key: &<<Self as CacheLayerReader>::Snapshot as Snapshot>::Key,
-//     ) -> Option<<<Self as CacheLayerReader>::Snapshot as Snapshot>::Value>;
-// }
-
 pub type SnapshotId = u64;
 
 

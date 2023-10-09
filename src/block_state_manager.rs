@@ -29,6 +29,7 @@ impl<P: Persistence<Payload=CacheLog>> Snapshot for TreeManagerSnapshotQuery<P> 
     type Value = CacheValue;
     type Id = SnapshotId;
 
+    /// Queries value recursively from associated manager
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
         let manager = self.manager.read().unwrap();
         manager.get_value_recursively(self.id, key)
