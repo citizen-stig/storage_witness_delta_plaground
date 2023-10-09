@@ -97,7 +97,9 @@ Questions
 
 # 06.10
 
-    - Do another round of traits API simplification, if it is possible.
-        - Write tests to see edge cases
+ - +Do another round of traits API simplification, if it is possible.
+    - Write tests to see edge cases
  - Remove extra method parameters from ForkTreeManager
  - Idea: Try to make Snapshot generic for snapshot ref instead of concrete implementation.
+ - + Do we need ForkTreeManager trait at all? Can we sov-runner use concrete implementation?
+   - Yes. sov-stf-runner should be generic and do not depend on concrete implementaiton
