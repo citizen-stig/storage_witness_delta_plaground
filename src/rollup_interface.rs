@@ -26,17 +26,11 @@ pub trait ForkTreeManager {
     type SnapshotRef;
     type BlockHash;
 
-    /// Creates new snapshot on top of block_hash
-    /// If block hash is not present, consider it as genesis
-    fn get_from_block(&mut self, block_hash: &Self::BlockHash) -> Self::SnapshotRef;
+    /// Creates new snapshot reference for `current_block_hash` based on top of `prev_block_hash`
+    fn get_new_ref(&mut self, prev_block_hash: &Self::BlockHash, current_block_hash: &Self::BlockHash) -> Self::SnapshotRef;
 
-    /// Adds new snapshot with given block hash to the chain
-    /// Implementation is responsible for maintaining connection between block hashes
-    /// NOTE: Maybe we don't need parent, and find parent hash from snapshot id?
-    fn add_snapshot(&mut self,
-                    parent_block_hash: &Self::BlockHash,
-                    block_hash: &Self::BlockHash,
-                    snapshot: Self::Snapshot);
+    /// Add new snapshot
+    fn add_snapshot(&mut self, snapshot: Self::Snapshot);
 
     /// Cleans up chain graph and saves state associated with block hash, if present
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash);

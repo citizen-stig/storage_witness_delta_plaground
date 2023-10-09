@@ -46,12 +46,12 @@ fn runner<Stf, Fm, B, Bh>(
             println!("Executing fork from prev={} to next={}", current_block_hash, child_block_hash);
             let snapshot_ref = {
                 let mut fm = fork_manager.write().unwrap();
-                fm.get_from_block(&current_block_hash)
+                fm.get_new_ref(&current_block_hash, &child_block_hash)
             };
             let (_state_root, _witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
             {
                 let mut fm = fork_manager.write().unwrap();
-                fm.add_snapshot(&current_block_hash, &child_block_hash, snapshot);
+                fm.add_snapshot(snapshot);
             }
         }
         if let Some(finalized_block_hash) = finalized_block_hash {
@@ -76,7 +76,6 @@ fn main() {
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());
-
 
 
     // Current chain

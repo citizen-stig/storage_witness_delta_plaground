@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::cache::CacheLog;
-use sov_first_read_last_write_cache::CacheKey;
 use crate::db::Persistence;
 use crate::rollup_interface::{ForkTreeManager, Snapshot};
 use crate::state::{FrozenSnapshot, SnapshotId, TreeManagerSnapshotQuery};
@@ -10,23 +9,21 @@ use crate::types::{Key, ReadOnlyLock, Value};
 pub type BlockHash = String;
 
 pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
+    // Storage
     db: Arc<Mutex<P>>,
+    // Incremental
+    latest_id: SnapshotId,
+    self_ref: Option<Arc<RwLock<BlockStateManager<P>>>>,
+
     // Chain: prev_block -> child_blocks (forks
     chain_forks: HashMap<BlockHash, Vec<BlockHash>>,
     // Reverse: child_block -> parent
-    to_parent: HashMap<BlockHash, BlockHash>,
+    blocks_to_parent: HashMap<BlockHash, BlockHash>,
+    block_hash_to_snapshot_id: HashMap<BlockHash, SnapshotId>,
     // Snapshots
     // snapshot_id => snapshot
     snapshots: HashMap<SnapshotId, FrozenSnapshot>,
-    // All ancestors of a given snapshot kid => parent
-    snapshot_ancestors: HashMap<SnapshotId, SnapshotId>,
 
-    block_hash_to_id: HashMap<BlockHash, SnapshotId>,
-
-    // Incremental
-    latest_id: SnapshotId,
-
-    self_ref: Option<Arc<RwLock<BlockStateManager<P>>>>,
 }
 
 impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
@@ -34,10 +31,9 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
         let block_state_manager = Arc::new(RwLock::new(Self {
             db,
             chain_forks: Default::default(),
-            to_parent: Default::default(),
+            blocks_to_parent: Default::default(),
+            block_hash_to_snapshot_id: Default::default(),
             snapshots: Default::default(),
-            snapshot_ancestors: Default::default(),
-            block_hash_to_id: Default::default(),
             latest_id: Default::default(),
             self_ref: None,
         }));
@@ -50,18 +46,18 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
     }
 
     pub fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &Key) -> Option<Value> {
-        let snapshot_id = self.snapshot_ancestors.get(&snapshot_id)?;
-        let mut parent_snapshot = self.snapshots.get(snapshot_id);
-        let cache_key = CacheKey::from(key.clone());
-        while parent_snapshot.is_some() {
-            let snapshot = parent_snapshot.unwrap();
-            let value = snapshot.get_value(&cache_key);
-            if value.is_some() {
-                return value.map(|v| Value::from(v));
-            }
-            let parent_id = self.snapshot_ancestors.get(&snapshot.get_id())?;
-            parent_snapshot = self.snapshots.get(parent_id);
-        }
+        // let snapshot_id = self.snapshot_ancestors.get(&snapshot_id)?;
+        // let mut parent_snapshot = self.snapshots.get(snapshot_id);
+        // let cache_key = CacheKey::from(key.clone());
+        // while parent_snapshot.is_some() {
+        //     let snapshot = parent_snapshot.unwrap();
+        //     let value = snapshot.get_value(&cache_key);
+        //     if value.is_some() {
+        //         return value.map(|v| Value::from(v));
+        //     }
+        //     let parent_id = self.snapshot_ancestors.get(&snapshot.get_id())?;
+        //     parent_snapshot = self.snapshots.get(parent_id);
+        // }
 
         None
     }
@@ -77,66 +73,59 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
     type SnapshotRef = TreeManagerSnapshotQuery<P>;
     type BlockHash = BlockHash;
 
-    fn get_from_block(&mut self, block_hash: &Self::BlockHash) -> Self::SnapshotRef {
+    fn get_new_ref(&mut self, prev_block_hash: &Self::BlockHash, current_block_hash: &Self::BlockHash) -> Self::SnapshotRef {
         let prev_id = self.latest_id;
         self.latest_id += 1;
         let next_id = self.latest_id;
-        println!("Getting new snapshot ref with id={} from block hash={}", next_id, block_hash);
 
         let new_snapshot_ref = TreeManagerSnapshotQuery {
             id: next_id,
             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
         };
 
-        self.snapshot_ancestors.insert(next_id, prev_id);
+
+        let c = self.blocks_to_parent.insert(current_block_hash.clone(), prev_block_hash.clone());
+        // TODO: Maybe assert that parent is the same? Then
+        assert!(c.is_none(), "current block hash has already snapshot requested");
+        self.chain_forks.entry(prev_block_hash.clone()).or_insert(Vec::new()).push(current_block_hash.clone());
+        self.block_hash_to_snapshot_id.insert(current_block_hash.clone(), next_id);
 
         new_snapshot_ref
     }
 
-    fn add_snapshot(&mut self, prev_block_hash: &Self::BlockHash, next_block_hash: &Self::BlockHash, snapshot: Self::Snapshot) {
-        println!("Adding snapshot prev_block_hash={} next_block_hash={} id={}", prev_block_hash, next_block_hash, snapshot.get_id());
-        // Update chain
-        self.chain_forks.entry(prev_block_hash.clone()).or_insert(Vec::new()).push(next_block_hash.clone());
-        self.to_parent.insert(next_block_hash.clone(), prev_block_hash.clone());
-
-        if let Some(parent_snapshot_id) = self.block_hash_to_id.get(prev_block_hash) {
-            self.snapshot_ancestors.insert(snapshot.get_id().clone(), parent_snapshot_id.clone());
-        }
-        self.block_hash_to_id.insert(next_block_hash.clone(), snapshot.get_id());
+    fn add_snapshot(&mut self, snapshot: Self::Snapshot) {
+        // TODO: Assert it is known snapshot
         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
     }
 
     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
         println!("Finalizing block hash {}", block_hash);
-        if let Some(snapshot_id) = self.block_hash_to_id.remove(block_hash) {
+
+        if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(block_hash) {
             let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
-            assert_eq!(snapshot_id, snapshot.get_id());
             // Commit snapshot
             let payload = snapshot.into();
             let mut db = self.db.lock().unwrap();
             db.commit(payload);
+            // TODO: Check snapshot_id to block_has equality
+        } else {
+            // TODO: is it a valid case?
+            println!("Block {} is going to be finalized without producing snapshot", block_hash);
         }
 
-        // Clean up chain state
-        match self.to_parent.remove(block_hash) {
-            None => {
-                println!("HM, committing empty ")
-            }
-            Some(parent_block_hash) => {
-                let mut to_discard = self.chain_forks.remove(&parent_block_hash).unwrap();
-                to_discard.retain(|hash| hash != block_hash);
+        let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
+        let mut to_discard = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks");
+        while !to_discard.is_empty() {
+            let next_to_discard = to_discard.pop().unwrap();
+            let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
+            to_discard.extend(next_children_to_discard);
 
-                while !to_discard.is_empty() {
-                    let next_to_discard = to_discard.pop().unwrap();
-                    let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
-                    to_discard.extend(next_children_to_discard);
-
-                    let snapshot_id = self.block_hash_to_id.remove(&next_to_discard).unwrap();
-                    self.to_parent.remove(&next_to_discard).unwrap();
-                    self.snapshots.remove(&snapshot_id).unwrap();
-                }
+            if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(&next_to_discard) {
+                self.blocks_to_parent.remove(&next_to_discard).unwrap();
+                self.snapshots.remove(&snapshot_id).unwrap();
             }
-        };
+            // TODO: Check snapshot_id to block_hash and clean it too
+        }
     }
 }
 
@@ -158,7 +147,7 @@ mod tests {
         }
     }
 
-    fn write_value(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot {
+    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
@@ -186,9 +175,9 @@ mod tests {
             ("x", "1"),
             ("y", "2"),
         ];
-        let snapshot_ref = state_manager.get_from_block(&genesis_block);
-        let snapshot = write_value(db.clone(), snapshot_ref, &block_a_values);
-        state_manager.add_snapshot(&genesis_block, &block_a, snapshot);
+        let snapshot_ref = state_manager.get_new_ref(&genesis_block, &block_a);
+        let snapshot = write_values(db.clone(), snapshot_ref, &block_a_values);
+        state_manager.add_snapshot(snapshot);
         {
             assert!(db.lock().unwrap().data.is_empty());
         }
@@ -198,9 +187,9 @@ mod tests {
             ("x", "3"),
             ("z", "4"),
         ];
-        let snapshot_ref = state_manager.get_from_block(&block_a);
-        let snapshot = write_value(db.clone(), snapshot_ref, &block_b_values);
-        state_manager.add_snapshot(&block_a, &block_b, snapshot);
+        let snapshot_ref = state_manager.get_new_ref(&block_a, &block_b);
+        let snapshot = write_values(db.clone(), snapshot_ref, &block_b_values);
+        state_manager.add_snapshot(snapshot);
         {
             assert!(db.lock().unwrap().data.is_empty());
         }
@@ -219,12 +208,13 @@ mod tests {
             ("x", "5"),
             ("z", "6"),
         ];
-        let snapshot_ref = state_manager.get_from_block(&block_b);
-        let snapshot = write_value(db.clone(), snapshot_ref, &block_c_values);
-        state_manager.add_snapshot(&block_b, &block_c, snapshot);
+        let snapshot_ref = state_manager.get_new_ref(&block_b, &block_c);
+        let snapshot = write_values(db.clone(), snapshot_ref, &block_c_values);
+        state_manager.add_snapshot(snapshot);
         // Finalizing B
         state_manager.finalize_snapshot(&block_b);
 
+        // TODO: Finalize everything, it should be clean
     }
 
     #[test]
