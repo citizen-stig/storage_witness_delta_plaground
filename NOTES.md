@@ -102,10 +102,19 @@ Questions
  - Remove extra method parameters from ForkTreeManager
  - Idea: Try to make Snapshot generic for snapshot ref instead of concrete implementation.
  - + Do we need ForkTreeManager trait at all? Can we sov-runner use concrete implementation?
-   - Yes. sov-stf-runner should be generic and do not depend on concrete implementaiton
+   - Yes. sov-stf-runner should be generic and do not depend on concrete implementation
 
 # 09.10
 
  - Snapshot ID: can we stick to concrete type, like u64
    - Yes. at a rate of 3 snapshot IDs per second, it would take approximately 194,810,567 years for the u64 ID to overflow.
  - Can BlockStateManager be a concrete type generic over something
+   - Yes, by overusing Snapshot Trait
+
+# 10.10
+ - Can Snapshot use block hash as id? So it will be generic for sov-state, but actual block hash?
+ - Blazej: Can we remove generic from StateCheckpoint, 
+   - It becomes generic over BlockHash, which lives in DaSpec and Context does not have access to id
+     - Maybe use Vec<u8>
+     - Passing DaSpec inside Spec
+ - Self_ref in BlockStateManager can be removed and use just wrapper Type

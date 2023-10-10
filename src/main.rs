@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use crate::block_state_manager::{BlockHash, BlockStateManager, TreeManagerSnapshotQuery};
+use crate::block_state_manager::{BlockHash, BlockStateManager, TreeQuery};
 use crate::db::{Database, Persistence};
 use crate::rollup_interface::{Snapshot};
 use crate::state::FrozenSnapshot;
@@ -34,7 +34,7 @@ fn runner<Stf, P, S, B, Bh>(
         Bh: PartialEq + Eq + Hash + Clone + Display,
         P: Persistence,
         S: Snapshot + Into<P::Payload>,
-        Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeManagerSnapshotQuery<P, S, Bh>>,
+        Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeQuery<P, S, Bh>>,
 
 {
     assert_eq!(chain.len(), finalized_blocks.len());
@@ -71,7 +71,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, TreeManagerSnapshotQuery<Database, FrozenSnapshot, BlockHash>> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, TreeQuery<Database, FrozenSnapshot, BlockHash>> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());

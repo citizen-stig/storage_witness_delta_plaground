@@ -9,13 +9,13 @@ use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
 
-pub struct TreeManagerSnapshotQuery<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> {
+pub struct TreeQuery<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> {
     pub id: SnapshotId,
     pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
 
-impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> TreeManagerSnapshotQuery<P, S, Bh> {
+impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> TreeQuery<P, S, Bh> {
     pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
@@ -24,7 +24,7 @@ impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> TreeManagerSnapshotQuer
     }
 }
 
-impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> Snapshot for TreeManagerSnapshotQuery<P, S, Bh> {
+impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> Snapshot for TreeQuery<P, S, Bh> {
     type Key = S::Key;
     type Value = S::Value;
 
@@ -114,12 +114,12 @@ impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh: PartialEq + Eq + Hash +
             && self.snapshots.is_empty()
     }
 
-    pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeManagerSnapshotQuery<P, S, Bh> {
+    pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeQuery<P, S, Bh> {
         let prev_id = self.latest_id;
         self.latest_id += 1;
         let next_id = self.latest_id;
 
-        let new_snapshot_ref = TreeManagerSnapshotQuery {
+        let new_snapshot_ref = TreeQuery {
             id: next_id,
             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
         };
@@ -247,7 +247,7 @@ mod tests {
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
+    fn write_values(db: DB, snapshot_ref: TreeQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
