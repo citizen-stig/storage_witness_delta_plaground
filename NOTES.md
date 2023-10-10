@@ -103,3 +103,8 @@ Questions
  - Idea: Try to make Snapshot generic for snapshot ref instead of concrete implementation.
  - + Do we need ForkTreeManager trait at all? Can we sov-runner use concrete implementation?
    - Yes. sov-stf-runner should be generic and do not depend on concrete implementaiton
+
+# 09.10
+
+ - Snapshot ID: can we stick to concrete type, like u64
+ - Can BlockStateManager be a concrete type generic over something
