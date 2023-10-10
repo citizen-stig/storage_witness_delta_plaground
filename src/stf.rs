@@ -3,7 +3,7 @@ use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::db::Persistence;
 use crate::rollup_interface::Snapshot;
-use crate::state::{DB, FrozenSnapshot, SnapshotId, StateCheckpoint};
+use crate::state::{DB, FrozenSnapshot, StateCheckpoint};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
 
@@ -54,7 +54,7 @@ impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValu
 }
 
 //
-impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> SampleSTF<P, S> {
+impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> SampleSTF<P, S> {
     fn apply_operation(&mut self, checkpoint: StateCheckpoint<S>, operation: Operation) -> StateCheckpoint<S> {
         let mut working_set = checkpoint.to_revertable();
         match operation {
@@ -78,12 +78,12 @@ impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValu
     }
 }
 
-impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue, Id=SnapshotId>> STF for SampleSTF<P, S> {
+impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> STF for SampleSTF<P, S> {
     type StateRoot = u64;
     type Witness = Witness;
     type BlobTransaction = Operation;
     type CheckpointRef = S;
-    type Snapshot = FrozenSnapshot<S::Id>;
+    type Snapshot = FrozenSnapshot;
 
     fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);

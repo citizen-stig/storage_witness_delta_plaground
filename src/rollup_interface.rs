@@ -1,3 +1,5 @@
+use crate::state::SnapshotId;
+
 /// Snapshot of the state
 /// It can give a value that has been written/created on given state
 /// It should not query parents or database
@@ -5,13 +7,12 @@
 pub trait Snapshot {
     type Key;
     type Value: Clone;
-    type Id: Default + Copy + std::fmt::Debug;  // Debug only for convenience
 
     /// Get own value, value from its own cache
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value>;
 
     /// Helper method for mapping
-    fn get_id(&self) -> Self::Id;
+    fn get_id(&self) -> SnapshotId;
 }
 
 

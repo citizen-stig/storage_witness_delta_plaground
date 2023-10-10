@@ -1,22 +1,22 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::db::Persistence;
-use crate::rollup_interface::{ForkTreeManager, Snapshot};
+use crate::rollup_interface::{Snapshot};
 use crate::state::{FrozenSnapshot, SnapshotId};
 use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
 
-pub struct TreeManagerSnapshotQuery<P: Persistence<Payload=CacheLog>> {
+pub struct TreeManagerSnapshotQuery<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> {
     pub id: SnapshotId,
-    pub manager: ReadOnlyLock<BlockStateManager<P>>,
+    pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
 
-impl<P: Persistence<Payload=CacheLog>> TreeManagerSnapshotQuery<P> {
-    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P>>) -> Self {
+impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> TreeManagerSnapshotQuery<P, S, Bh> {
+    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
             manager,
@@ -24,10 +24,9 @@ impl<P: Persistence<Payload=CacheLog>> TreeManagerSnapshotQuery<P> {
     }
 }
 
-impl<P: Persistence<Payload=CacheLog>> Snapshot for TreeManagerSnapshotQuery<P> {
-    type Key = CacheKey;
-    type Value = CacheValue;
-    type Id = SnapshotId;
+impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> Snapshot for TreeManagerSnapshotQuery<P, S, Bh> {
+    type Key = S::Key;
+    type Value = S::Value;
 
     /// Queries value recursively from associated manager
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
@@ -35,36 +34,37 @@ impl<P: Persistence<Payload=CacheLog>> Snapshot for TreeManagerSnapshotQuery<P> 
         manager.get_value_recursively(self.id, key)
     }
 
-    fn get_id(&self) -> Self::Id {
-        self.id.clone()
+    fn get_id(&self) -> SnapshotId {
+        self.id
     }
 }
 
+
 #[derive(Debug)]
-pub struct BlockStateManager<P: Persistence<Payload=CacheLog>> {
+pub struct BlockStateManager<P: Persistence, S: Snapshot + Into<P::Payload>, Bh> {
     // Storage
     db: Arc<Mutex<P>>,
     // Helpers
-    latest_id: SnapshotId,
-    self_ref: Option<Arc<RwLock<BlockStateManager<P>>>>,
+    latest_id: u64,
+    self_ref: Option<Arc<RwLock<BlockStateManager<P, S, Bh>>>>,
 
     // Snapshots
     // snapshot_id => snapshot
-    snapshots: HashMap<SnapshotId, FrozenSnapshot<SnapshotId>>,
+    snapshots: HashMap<SnapshotId, S>,
 
     // L1 forks representation
     // Chain: prev_block -> child_blocks (forks
-    chain_forks: HashMap<BlockHash, Vec<BlockHash>>,
+    chain_forks: HashMap<Bh, Vec<Bh>>,
     // Reverse: child_block -> parent
-    blocks_to_parent: HashMap<BlockHash, BlockHash>,
-    block_hash_to_snapshot_id: HashMap<BlockHash, SnapshotId>,
+    blocks_to_parent: HashMap<Bh, Bh>,
+    block_hash_to_snapshot_id: HashMap<Bh, SnapshotId>,
 
     // Used for querying
-    snapshot_id_to_block_hash: HashMap<SnapshotId, BlockHash>,
+    snapshot_id_to_block_hash: HashMap<SnapshotId, Bh>,
 
 }
 
-impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
+impl<P: Persistence, S: Snapshot + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> BlockStateManager<P, S, Bh> {
     pub fn new_locked(db: Arc<Mutex<P>>) -> Arc<RwLock<Self>> {
         let block_state_manager = Arc::new(RwLock::new(Self {
             db,
@@ -84,8 +84,7 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
         block_state_manager
     }
 
-    pub fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &CacheKey) -> Option<CacheValue> {
-        // Will this return None?
+    pub fn get_value_recursively(&self, snapshot_id: SnapshotId, key: &S::Key) -> Option<S::Value> {
         let current_block_hash = self.snapshot_id_to_block_hash.get(&snapshot_id)?;
         let parent_block_hash = self.blocks_to_parent.get(current_block_hash)?;
         let parent_snapshot_id = self.block_hash_to_snapshot_id.get(parent_block_hash).unwrap();
@@ -114,15 +113,8 @@ impl<P: Persistence<Payload=CacheLog>> BlockStateManager<P> {
             && self.snapshot_id_to_block_hash.is_empty()
             && self.snapshots.is_empty()
     }
-}
 
-
-impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
-    type Snapshot = FrozenSnapshot<SnapshotId>;
-    type SnapshotRef = TreeManagerSnapshotQuery<P>;
-    type BlockHash = BlockHash;
-
-    fn get_new_ref(&mut self, prev_block_hash: &Self::BlockHash, current_block_hash: &Self::BlockHash) -> Self::SnapshotRef {
+    pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeManagerSnapshotQuery<P, S, Bh> {
         let prev_id = self.latest_id;
         self.latest_id += 1;
         let next_id = self.latest_id;
@@ -143,13 +135,12 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
         new_snapshot_ref
     }
 
-    fn add_snapshot(&mut self, snapshot: Self::Snapshot) {
-        // TODO: Assert it is known snapshot
+    pub fn add_snapshot(&mut self, snapshot: S) {
         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
     }
 
-    fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
-        println!("Finalizing block hash {}", block_hash);
+    pub fn finalize_snapshot(&mut self, block_hash: &Bh) {
+        // println!("Finalizing block hash {}", block_hash);
 
         if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(block_hash) {
             let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
@@ -161,7 +152,7 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
             // TODO: Check snapshot_id to block_has equality
         } else {
             // TODO: is it a valid case?
-            println!("Block {} is going to be finalized without producing snapshot", block_hash);
+            // println!("Block {} is going to be finalized without producing snapshot", block_hash);
         }
 
         let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
@@ -183,13 +174,80 @@ impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> 
     }
 }
 
+//
+// impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
+//     type Snapshot = FrozenSnapshot<SnapshotId>;
+//     type SnapshotRef = TreeManagerSnapshotQuery<P>;
+//     type BlockHash = BlockHash;
+//
+//     fn get_new_ref(&mut self, prev_block_hash: &Self::BlockHash, current_block_hash: &Self::BlockHash) -> Self::SnapshotRef {
+//         let prev_id = self.latest_id;
+//         self.latest_id += 1;
+//         let next_id = self.latest_id;
+//
+//         let new_snapshot_ref = TreeManagerSnapshotQuery {
+//             id: next_id,
+//             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
+//         };
+//
+//
+//         let c = self.blocks_to_parent.insert(current_block_hash.clone(), prev_block_hash.clone());
+//         // TODO: Maybe assert that parent is the same? Then
+//         assert!(c.is_none(), "current block hash has already snapshot requested");
+//         self.chain_forks.entry(prev_block_hash.clone()).or_insert(Vec::new()).push(current_block_hash.clone());
+//         self.block_hash_to_snapshot_id.insert(current_block_hash.clone(), next_id);
+//         self.snapshot_id_to_block_hash.insert(next_id, current_block_hash.clone());
+//
+//         new_snapshot_ref
+//     }
+//
+//     fn add_snapshot(&mut self, snapshot: Self::Snapshot) {
+//         // TODO: Assert it is known snapshot
+//         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
+//     }
+//
+//     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
+//         println!("Finalizing block hash {}", block_hash);
+//
+//         if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(block_hash) {
+//             let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
+//             self.snapshot_id_to_block_hash.remove(&snapshot_id).expect("Data inconsistency: self.snapshot_id_to_block_hash");
+//             // Commit snapshot
+//             let payload = snapshot.into();
+//             let mut db = self.db.lock().unwrap();
+//             db.commit(payload);
+//             // TODO: Check snapshot_id to block_has equality
+//         } else {
+//             // TODO: is it a valid case?
+//             println!("Block {} is going to be finalized without producing snapshot", block_hash);
+//         }
+//
+//         let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
+//         let mut to_discard: Vec<_> = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks")
+//             .into_iter()
+//             .filter(|bh| bh != block_hash)
+//             .collect();
+//         while !to_discard.is_empty() {
+//             let next_to_discard = to_discard.pop().unwrap();
+//             let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
+//             to_discard.extend(next_children_to_discard);
+//
+//             if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(&next_to_discard) {
+//                 self.blocks_to_parent.remove(&next_to_discard).unwrap();
+//                 self.snapshots.remove(&snapshot_id).unwrap();
+//             }
+//             // TODO: Check snapshot_id to block_hash and clean it too
+//         }
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
     use crate::db::Database;
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database>, values: &[(&str, &str)]) -> FrozenSnapshot<SnapshotId> {
+    fn write_values(db: DB, snapshot_ref: TreeManagerSnapshotQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
@@ -208,7 +266,7 @@ mod tests {
         #[test]
         fn new() {
             let db = DB::default();
-            let state_manager = BlockStateManager::new_locked(db.clone());
+            let state_manager = BlockStateManager::<Database, FrozenSnapshot, BlockHash>::new_locked(db.clone());
             let state_manager = state_manager.write().unwrap();
             assert!(state_manager.self_ref.is_some());
             {

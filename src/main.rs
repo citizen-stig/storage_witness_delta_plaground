@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use crate::block_state_manager::{BlockStateManager, TreeManagerSnapshotQuery};
-use crate::db::{Database};
-use crate::rollup_interface::ForkTreeManager;
+use crate::block_state_manager::{BlockHash, BlockStateManager, TreeManagerSnapshotQuery};
+use crate::db::{Database, Persistence};
+use crate::rollup_interface::{Snapshot};
+use crate::state::FrozenSnapshot;
 use crate::stf::{Operation, SampleSTF, STF};
 use crate::types::{Key, Value};
 
@@ -19,9 +20,9 @@ mod stf;
 mod types;
 mod rollup_interface;
 
-fn runner<Stf, Fm, B, Bh>(
+fn runner<Stf, P, S, B, Bh>(
     mut stf: Stf,
-    fork_manager: Arc<RwLock<Fm>>,
+    fork_manager: Arc<RwLock<BlockStateManager<P, S, Bh>>>,
     // Simulates arrival of DA blocks
     chain: Vec<Bh>,
     // Matches length of chain, and when value is present this block is
@@ -30,13 +31,11 @@ fn runner<Stf, Fm, B, Bh>(
     mut batches: HashMap<Bh, Vec<(Bh, Vec<B>)>>)
     where
     // This constraint is for a map.
-        Bh: Eq + Hash + Display,
-        Stf: STF<BlobTransaction=B>,
-        Fm: ForkTreeManager<
-            SnapshotRef=<Stf as STF>::CheckpointRef, Snapshot=<Stf as STF>::Snapshot,
-            BlockHash=Bh
-        >,
-// Note: How to put bound on INTO
+        Bh: PartialEq + Eq + Hash + Clone + Display,
+        P: Persistence,
+        S: Snapshot + Into<P::Payload>,
+        Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeManagerSnapshotQuery<P, S, Bh>>,
+
 {
     assert_eq!(chain.len(), finalized_blocks.len());
     for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
@@ -72,7 +71,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, TreeManagerSnapshotQuery<Database>> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, TreeManagerSnapshotQuery<Database, FrozenSnapshot, BlockHash>> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());

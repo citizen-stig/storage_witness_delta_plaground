@@ -107,4 +107,5 @@ Questions
 # 09.10
 
  - Snapshot ID: can we stick to concrete type, like u64
+   - Yes. at a rate of 3 snapshot IDs per second, it would take approximately 194,810,567 years for the u64 ID to overflow.
  - Can BlockStateManager be a concrete type generic over something
