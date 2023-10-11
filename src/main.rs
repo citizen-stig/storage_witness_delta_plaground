@@ -31,7 +31,7 @@ fn runner<Stf, P, S, B, Bh>(
     mut batches: HashMap<Bh, Vec<(Bh, Vec<B>)>>)
     where
     // This constraint is for a map.
-        Bh: PartialEq + Eq + Hash + Clone + Display,
+        Bh: Eq + Hash + Clone + Display,
         P: Persistence,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
         Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeQuery<P, S, Bh>>,

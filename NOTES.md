@@ -122,6 +122,6 @@ Questions
 
 
 TODO:
- - Make Snapshot ID generic
- - Replace SnapshotID with BlockHash in StateManager
+ + Make Snapshot ID generic
++ Replace SnapshotID with BlockHash in StateManager
  - 

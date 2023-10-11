@@ -33,13 +33,13 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
         }
     }
 
-    pub fn get_value(&self, key: &S::Key) -> Option<S::Value> {
+    pub fn get_value_from_cache_layers(&self, key: &S::Key) -> Option<S::Value> {
         let manager = self.manager.read().unwrap();
         manager.get_value_recursively(&self.id, key)
     }
 
-    pub fn get_id(&self) -> &S::Id {
-        &self.id
+    pub fn get_id(&self) -> S::Id {
+        self.id.clone()
     }
 }
 

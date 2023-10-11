@@ -11,12 +11,13 @@ use crate::types::{Key, Value};
 use crate::witness::Witness;
 
 pub type DB = Arc<Mutex<Database>>;
-pub type SnapshotId = u64;
 
 
-///
-pub struct FrozenSnapshot<I> {
-    id: I,
+/// Represent CacheLayer that can be used in 2 ways:
+///  - query own value
+///  - be saved to database
+pub struct FrozenSnapshot<Id> {
+    id: Id,
     local_cache: CacheLog,
 }
 
@@ -26,8 +27,8 @@ impl<I: Debug + Clone> Debug for FrozenSnapshot<I> {
     }
 }
 
-impl<I: Clone> Snapshot for FrozenSnapshot<I> {
-    type Id = I;
+impl<Id: Clone> Snapshot for FrozenSnapshot<Id> {
+    type Id = Id;
     type Key = CacheKey;
     type Value = CacheValue;
 
@@ -47,8 +48,8 @@ impl<I: Clone> Snapshot for FrozenSnapshot<I> {
     }
 }
 
-impl<I> From<FrozenSnapshot<I>> for CacheLog {
-    fn from(value: FrozenSnapshot<I>) -> Self {
+impl<Id> From<FrozenSnapshot<Id>> for CacheLog {
+    fn from(value: FrozenSnapshot<Id>) -> Self {
         value.local_cache
     }
 }
@@ -70,21 +71,21 @@ impl Persistence for Database {
 }
 
 /// Note: S: Snapshot can be inside spec, with Bh, and Bh assigned from DA spec from above
-pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
+pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: TreeQuery<P, S, Bh>,
+    parent: TreeQuery<P, S, SnapshotId>,
 }
 
 
-impl<P, S, Bh> StateCheckpoint<P, S, Bh>
+impl<P, S, SnapshotId> StateCheckpoint<P, S, SnapshotId>
     where
         P: Persistence,
-        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
-        Bh: Eq + Hash + Clone
+        S: Snapshot<Id=SnapshotId, Key=CacheKey, Value=CacheValue>,
+        SnapshotId: Eq + Hash + Clone
 {
-    pub fn new(db: DB, parent: TreeQuery<P, S, Bh>) -> Self {
+    pub fn new(db: DB, parent: TreeQuery<P, S, SnapshotId>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -93,7 +94,7 @@ impl<P, S, Bh> StateCheckpoint<P, S, Bh>
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<P, S, Bh> {
+    pub fn to_revertable(self) -> WorkingSet<P, S, SnapshotId> {
         WorkingSet {
             db: self.db,
             cache: RevertableWriter::new(self.cache),
@@ -105,7 +106,7 @@ impl<P, S, Bh> StateCheckpoint<P, S, Bh>
     pub fn freeze(mut self) -> (Witness, FrozenSnapshot<S::Id>) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
-            id: self.parent.get_id().clone(),
+            id: self.parent.get_id(),
             local_cache: self.cache,
         };
 
@@ -179,11 +180,11 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
+pub struct WorkingSet<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: TreeQuery<P, S, Bh>,
+    parent: TreeQuery<P, S, SnapshotId>,
 }
 
 impl<P, S, Bh> WorkingSet<P, S, Bh>
@@ -202,7 +203,7 @@ impl<P, S, Bh> WorkingSet<P, S, Bh>
         }
 
 // Check parent recursively
-        let cache_value = match self.parent.get_value(&cache_key) {
+        let cache_value = match self.parent.get_value_from_cache_layers(&cache_key) {
             Some(value) => Some(value),
             None => {
                 let db = self.db.lock().unwrap();
