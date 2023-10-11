@@ -22,7 +22,7 @@ pub trait Snapshot {
 }
 ```
 
-And STF has 2 new associated types `Snapshot` and `SnapshotRef`:
+And STF has 2 new associated types `Snapshot` and `SnapshotRef`, without any bounds:
 
 ```rust
 pub trait STF {
@@ -45,6 +45,9 @@ pub trait STF {
 ```
 
 ### New Types
+
+
+#### Full-node related
 
 `BlockStateManager` is a concrete implementation that handles relationship between snapshots
 
@@ -102,9 +105,102 @@ impl BlockStateManager {
 }
 ```
 
+#### Module system related
+
+New type `FronzenSnapshot` is just a holder of `CacheLog` and assigned `Id`. 
+It implements `Snapshot` trait, as well as it can be saved to the database.
+`BlockStateManager` operates on those.
+
 
 ### Modification of existing types
 
+`StateCheckpoint` and its mutable pair `WorkingSet` now explicitly depend on `TreeQuery`.
+
+it has same old `to_revertable` as well as `freeze` method which splits it into witness and FrozenSnapshot
+
+```rust
+pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
+    // For reading only
+    db: DB,
+    // Own cache
+    cache: CacheLog,
+    witness: Witness,
+    parent: TreeQuery<P, S, SnapshotId>,
+}
+
+impl<P, S, SnapshotId> StateCheckpoint<P, S, SnapshotId>
+    where
+        P: Persistence,
+        S: Snapshot<Id=SnapshotId, Key=CacheKey, Value=CacheValue>,
+        SnapshotId: Eq + Hash + Clone
+{
+    pub fn new(db: DB, parent: TreeQuery<P, S, SnapshotId>) -> Self {
+        todo!("simple assigning");
+    }
+
+    pub fn to_revertable(self) -> WorkingSet<P, S, SnapshotId> {
+        WorkingSet {
+            db: self.db,
+            cache: RevertableWriter::new(self.cache),
+            witness: self.witness,
+            parent: self.parent,
+        }
+    }
+
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<S::Id>) {
+        let witness = std::mem::replace(&mut self.witness, Default::default());
+        let snapshot = FrozenSnapshot {
+            id: self.parent.get_id(),
+            local_cache: self.cache,
+        };
+
+        (witness, snapshot)
+    }
+}
+```
+
+`WorkingSet` is almost the same, but it has `get`/`set`/`delete` methods. 
+`get` method uses `TreeQuery` to get value that wasn't saved to database yet:
+
+```rust
+pub struct WorkingSet<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
+    db: DB,
+    cache: RevertableWriter<CacheLog>,
+    witness: Witness,
+    parent: TreeQuery<P, S, SnapshotId>,
+}
+
+impl<P, S, Bh> WorkingSet<P, S, Bh> {
+    /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
+    pub fn get(&mut self, key: &Key) -> Option<Value> {
+        let cache_key = CacheKey::from(key.clone());
+        // Read from own cache
+        let value = self.cache.inner.get(key);
+        if value.is_some() {
+            return value;
+        }
+
+        // Check parents or read database
+        let cache_value = match self.parent.get_value_from_cache_layers(&cache_key) {
+            Some(value) => Some(value),
+            None => {
+                let db = self.db.lock().unwrap();
+                let db_key = key.to_string();
+                db.get(&db_key).map(|v| CacheValue::from(Value::from(v)))
+            }
+        };
+
+        // Save in own cache and log witness
+        value
+    }
+}
+```
 
 
+## Challenges
 
+
+1. `WorkingSet` has more generics now: `Snapshot` trait and `SnapshotId(BlockHash)`.
+   1. Can they be defined inside Spec? 
+2. How this setup will work inside ZK?
+3. Optional: split storage trait into: Readable storage and `Storag: ReadableStorage` + writing things.
