@@ -28,6 +28,10 @@ pub fn persist_cache(db: &mut Database, cache: CacheLog) {}
 
 
 pub trait Storage {
+    type Key;
+    type Value;
     type Payload;
+
     fn commit(&mut self, data: Self::Payload);
+    fn get(&self, key: &Self::Key) -> Option<Self::Value>;
 }

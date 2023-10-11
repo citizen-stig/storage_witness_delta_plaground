@@ -42,7 +42,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 //
 impl<P, S, Bh> SampleSTF<P, S, Bh>
     where
-        P: Storage<Payload=CacheLog>,
+        P: Storage<Payload=CacheLog, Key=S::Key, Value=S::Value>,
         S: Snapshot<Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone,
 {
@@ -72,7 +72,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 
 impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
     where
-        P: Storage<Payload=CacheLog>,
+        P: Storage<Payload=CacheLog, Key=S::Key, Value=S::Value>,
         S: Snapshot<Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone
 {
@@ -82,7 +82,7 @@ impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
     type ChangeSet = FrozenSnapshot;
 
     fn apply_slot<'a, I>(&mut self, base: Self::SnapshotRef, blobs: I) -> (Self::Witness, Self::ChangeSet) where I: IntoIterator<Item=Self::BlobTransaction> {
-        let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);
+        let mut checkpoint = StateCheckpoint::new(base);
         for operation in blobs {
             checkpoint = self.apply_operation(checkpoint, operation);
         }

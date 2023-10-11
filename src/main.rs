@@ -36,7 +36,7 @@ fn runner<Stf, P, S, B, Bh>(
     where
     // This constraint is for a map.
         Bh: Eq + Hash + Clone + Display,
-        P: Storage,
+        P: Storage<Key=S::Key, Value=S::Value>,
         S: Snapshot + Into<P::Payload>,
         Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, S, Bh>>,
 

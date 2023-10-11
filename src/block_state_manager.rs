@@ -29,6 +29,7 @@ pub struct TreeQuery<P, S, Bh>
         S: Snapshot
 {
     pub id: SnapshotId,
+    pub db: Arc<Mutex<P>>,
     pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
@@ -40,16 +41,12 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
         Bh: Eq + Hash + Clone,
 
 {
-    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
+    pub fn new(id: SnapshotId, db: Arc<Mutex<P>>, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
+            db,
             manager,
         }
-    }
-
-    pub fn get_value_from_cache_layers(&self, key: &S::Key) -> Option<S::Value> {
-        let manager = self.manager.read().unwrap();
-        manager.get_value_recursively(&self.id, key)
     }
 
     pub fn get_id(&self) -> SnapshotId {
@@ -57,6 +54,25 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
     }
 }
 
+
+impl<P, S, Bh> TreeQuery<P, S, Bh>
+    where
+        P: Storage<Key=S::Key, Value=S::Value>,
+        S: Snapshot,
+        Bh: Eq + Hash + Clone,
+
+{
+    pub fn get_value_from_cache_layers(&self, key: &S::Key) -> Option<S::Value> {
+        let manager = self.manager.read().unwrap();
+        let value_from_cache = manager.get_value_recursively(&self.id, key);
+        if value_from_cache.is_some() {
+            return value_from_cache;
+        }
+
+        let db = self.db.lock().unwrap();
+        db.get(key)
+    }
+}
 
 #[derive(Debug)]
 pub struct BlockStateManager<P: Storage, S: Snapshot, Bh> {
@@ -149,6 +165,7 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
         self.latest_snapshot_id += 1;
         let new_snapshot_ref = TreeQuery {
             id: self.latest_snapshot_id,
+            db: self.db.clone(),
             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
         };
 
@@ -208,7 +225,7 @@ mod tests {
     use super::*;
 
     fn write_values(db: DB, snapshot_ref: TreeQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
-        let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
+        let checkpoint = StateCheckpoint::new(snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
             let key = Key::from(key.to_string());

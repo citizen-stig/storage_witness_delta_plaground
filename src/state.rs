@@ -54,6 +54,8 @@ impl From<FrozenSnapshot> for CacheLog {
 
 
 impl Storage for Database {
+    type Key = CacheKey;
+    type Value = CacheValue;
     type Payload = CacheLog;
 
     fn commit(&mut self, data: Self::Payload) {
@@ -66,11 +68,15 @@ impl Storage for Database {
             }
         }
     }
+
+    fn get(&self, key: &Self::Key) -> Option<Self::Value> {
+        let key_string = key.to_string();
+        self.data.get(&key_string).map(|v| CacheValue::from(Value::from(v.clone())))
+    }
 }
 
 /// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
-pub struct StateCheckpoint<P: Storage, SnapshotId: Clone> {
-    db: DB,
+pub struct StateCheckpoint<P: Storage<Key=CacheKey, Value=CacheValue>, SnapshotId: Clone> {
     cache: CacheLog,
     witness: Witness,
     parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
@@ -79,12 +85,11 @@ pub struct StateCheckpoint<P: Storage, SnapshotId: Clone> {
 
 impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
     where
-        P: Storage,
+        P: Storage<Key=CacheKey, Value=CacheValue>,
         SnapshotId: Eq + Hash + Clone
 {
-    pub fn new(db: DB, parent: TreeQuery<P, FrozenSnapshot, SnapshotId>) -> Self {
+    pub fn new(parent: TreeQuery<P, FrozenSnapshot, SnapshotId>) -> Self {
         Self {
-            db,
             cache: Default::default(),
             witness: Default::default(),
             parent,
@@ -93,7 +98,6 @@ impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
 
     pub fn to_revertable(self) -> WorkingSet<P, SnapshotId> {
         WorkingSet {
-            db: self.db,
             cache: RevertableWriter::new(self.cache),
             witness: self.witness,
             parent: self.parent,
@@ -177,8 +181,7 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Storage, SnapshotId: Clone> {
-    db: DB,
+pub struct WorkingSet<P: Storage<Key=CacheKey, Value=CacheValue>, SnapshotId: Clone> {
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
     parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
@@ -186,30 +189,18 @@ pub struct WorkingSet<P: Storage, SnapshotId: Clone> {
 
 impl<P, SnapshotId> WorkingSet<P, SnapshotId>
     where
-        P: Storage,
+        P: Storage<Key=CacheKey, Value=CacheValue>,
         SnapshotId: Eq + Hash + Clone,
 {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
         let cache_key = CacheKey::from(key.clone());
-// Read from own cache
         let value = self.cache.inner.get(key);
         if value.is_some() {
             return value;
         }
 
-// Check parent recursively
-        let cache_value = match self.parent.get_value_from_cache_layers(&cache_key) {
-            Some(value) => Some(value),
-            None => {
-                let db = self.db.lock().unwrap();
-                let db_key = key.to_string();
-// TODO: Ugly
-                db.get(&db_key).map(|v| CacheValue::from(Value::from(v)))
-            }
-        };
-
-        let cache_value = cache_value.clone();
+        let cache_value = self.parent.get_value_from_cache_layers(&cache_key);
         self.cache.writes.insert(cache_key, cache_value.clone());
         let value = cache_value.map(Value::from);
         self.witness.track_operation(key, value.clone());
@@ -225,7 +216,6 @@ impl<P, SnapshotId> WorkingSet<P, SnapshotId>
 
     pub fn commit(self) -> StateCheckpoint<P, SnapshotId> {
         StateCheckpoint {
-            db: self.db,
             cache: self.cache.commit(),
             witness: self.witness,
             parent: self.parent,
@@ -234,7 +224,6 @@ impl<P, SnapshotId> WorkingSet<P, SnapshotId>
 
     pub fn revert(self) -> StateCheckpoint<P, SnapshotId> {
         StateCheckpoint {
-            db: self.db,
             cache: self.cache.revert(),
             witness: Witness::default(),
             parent: self.parent,
