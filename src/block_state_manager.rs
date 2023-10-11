@@ -9,13 +9,13 @@ use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
 
-pub struct TreeQuery<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh> {
+pub struct TreeQuery<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     pub id: Bh,
     pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
 
-impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh> TreeQuery<P, S, Bh> {
+impl<P: Persistence, S: Snapshot<Id=Bh>, Bh> TreeQuery<P, S, Bh> {
     pub fn new(id: S::Id, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
@@ -42,7 +42,7 @@ impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh: PartialEq + Eq +
 
 
 #[derive(Debug)]
-pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh> {
+pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     // Storage
     db: Arc<Mutex<P>>,
     // Helpers
