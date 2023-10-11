@@ -18,13 +18,13 @@ pub struct FrozenSnapshot<I> {
     local_cache: CacheLog,
 }
 
-impl<I: Debug + Clone + Default> Debug for FrozenSnapshot<I> {
+impl<I: Debug + Clone> Debug for FrozenSnapshot<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "FrozenSnapshot<Id={:?}>", self.get_id())
     }
 }
 
-impl<I: Clone + Default> Snapshot for FrozenSnapshot<I> {
+impl<I: Clone> Snapshot for FrozenSnapshot<I> {
     type Id = I;
     type Key = CacheKey;
     type Value = CacheValue;
