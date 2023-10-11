@@ -3,11 +3,26 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::db::Persistence;
-use crate::rollup_interface::{Snapshot};
 use crate::state::{FrozenSnapshot};
 use crate::types::{Key, ReadOnlyLock, Value};
 
-pub type BlockHash = String;
+// pub type SnapshotId = u64;
+
+/// Snapshot of the state
+/// It can give a value that has been written/created on given state
+/// [`BlockStateManager`] suppose to operate over those
+pub trait Snapshot {
+    type Id: Clone;
+    type Key;
+    type Value: Clone;
+
+    /// Get own value, value from its own cache
+    fn get_value(&self, key: &Self::Key) -> Option<Self::Value>;
+
+    /// Helper method for mapping
+    fn get_id(&self) -> &Self::Id;
+}
+
 
 pub struct TreeQuery<P, S, Bh>
     where
@@ -171,6 +186,7 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
 
 #[cfg(test)]
 mod tests {
+    use crate::BlockHash;
     use crate::db::Database;
     use crate::state::{DB, StateCheckpoint};
     use super::*;

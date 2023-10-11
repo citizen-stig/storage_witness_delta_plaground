@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use crate::block_state_manager::{BlockHash, BlockStateManager, TreeQuery};
+use crate::block_state_manager::{BlockStateManager, Snapshot, TreeQuery};
 use crate::db::{Database, Persistence};
-use crate::rollup_interface::{Snapshot, STF};
+use crate::rollup_interface::{STF};
 use crate::state::{FrozenSnapshot};
 use crate::stf::{Operation, SampleSTF};
 use crate::types::{Key, Value};
@@ -19,6 +19,8 @@ mod block_state_manager;
 mod stf;
 mod types;
 mod rollup_interface;
+
+pub type BlockHash = String;
 
 fn runner<Stf, P, S, B, Bh>(
     mut stf: Stf,

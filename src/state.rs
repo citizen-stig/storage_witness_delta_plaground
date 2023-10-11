@@ -4,9 +4,8 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::block_state_manager::TreeQuery;
+use crate::block_state_manager::{Snapshot, TreeQuery};
 use crate::db::{Database, Persistence};
-use crate::rollup_interface::Snapshot;
 use crate::types::{Key, Value};
 use crate::witness::Witness;
 
