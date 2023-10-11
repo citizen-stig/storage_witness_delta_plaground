@@ -25,7 +25,7 @@ impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh> TreeQuery<P, S, 
 }
 
 impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> Snapshot for TreeQuery<P, S, Bh> {
-    type Id = S::Id;
+    type Id = Bh;
     type Key = S::Key;
     type Value = S::Value;
 
