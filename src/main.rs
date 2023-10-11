@@ -22,7 +22,7 @@ mod rollup_interface;
 
 fn runner<Stf, P, S, B, Bh>(
     mut stf: Stf,
-    fork_manager: Arc<RwLock<BlockStateManager<P, S, Bh>>>,
+    block_state_manager: Arc<RwLock<BlockStateManager<P, S, Bh>>>,
     // Simulates arrival of DA blocks
     chain: Vec<Bh>,
     // Matches length of chain, and when value is present this block is
@@ -44,17 +44,17 @@ fn runner<Stf, P, S, B, Bh>(
         for (child_block_hash, blob) in forks {
             println!("Executing fork from prev={} to next={}", current_block_hash, child_block_hash);
             let snapshot_ref = {
-                let mut fm = fork_manager.write().unwrap();
+                let mut fm = block_state_manager.write().unwrap();
                 fm.get_new_ref(&current_block_hash, &child_block_hash)
             };
             let (_witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
             {
-                let mut fm = fork_manager.write().unwrap();
+                let mut fm = block_state_manager.write().unwrap();
                 fm.add_snapshot(snapshot);
             }
         }
         if let Some(finalized_block_hash) = finalized_block_hash {
-            let mut fm = fork_manager.write().unwrap();
+            let mut fm = block_state_manager.write().unwrap();
             fm.finalize_snapshot(&finalized_block_hash);
         }
         println!("== ========");
@@ -74,7 +74,7 @@ fn main() {
     let stf: SampleSTF<Database, FrozenSnapshot<BlockHash>, BlockHash> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
-    let fork_state_manager = BlockStateManager::new_locked(db.clone());
+    let block_state_manager = BlockStateManager::new_locked(db.clone());
 
 
     // Current chain
@@ -119,7 +119,7 @@ fn main() {
         block_hash_c => vec![(block_hash_d.clone(), batch_3)]
     };
 
-    runner(stf, fork_state_manager, chain, finalized, forks);
+    runner(stf, block_state_manager, chain, finalized, forks);
 
     let db = &db.lock().unwrap().data;
     for (k, v) in db {

@@ -17,7 +17,6 @@ pub enum Operation {
 
 
 pub struct SampleSTF<P: Persistence<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
-    state_root: u64,
     phantom_persistence: PhantomData<P>,
     phantom_snapshot: PhantomData<S>,
     phantom_bh: PhantomData<Bh>,
@@ -32,7 +31,6 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 {
     pub fn new(db: DB) -> Self {
         Self {
-            state_root: 0,
             phantom_persistence: PhantomData,
             phantom_snapshot: PhantomData,
             phantom_bh: PhantomData,

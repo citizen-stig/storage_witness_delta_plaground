@@ -196,11 +196,55 @@ impl<P, S, Bh> WorkingSet<P, S, Bh> {
 }
 ```
 
+## Plugging it all together
+
+Here is a function, that represents simple `runner`, which is generic over STF, DaService as current runner,
+But uses concrete BlockStateManager
+
+```rust
+fn runner<Stf, P, S, B, Bh>(
+    mut stf: Stf,
+    block_state_manager: Arc<RwLock<BlockStateManager<P, S, Bh>>>,
+    // Simulates arrival of DA blocks
+    da_service: DaService)
+    where
+        Bh: DaSpec::BlockHash + Eq + Hash + Clone + Display,
+        P: Persistence,
+        S: Snapshot<Id=Bh> + Into<P::Payload>,
+        Stf: STF<BlobTransaction=B, Snapshot=S, SnapshotRef=TreeQuery<P, S, Bh>>,
+{
+    // for each DA block:
+    let snapshot_ref = block_state_manager.get_new_ref(&current_block_hash, &child_block_hash);
+    let (_witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
+    block_state_manager.add_snapshot(snapshot);
+
+    // For each finalized block
+    block_state_manager.finalize_snapshot(&finalized_block_hash);
+}
+```
+
+And a setup looks like this, where SampleSTF resembles AppTemplate:
+
+```rust
+
+pub type BlockHash = String;
+
+fn main() {
+    let db = Arc::new(Mutex::new(Database::default()));
+    let stf: SampleSTF<Database, FrozenSnapshot<BlockHash>, BlockHash> = SampleSTF::new(db.clone());
+
+    // Bootstrap fork_state_manager
+    let block_state_manager = BlockStateManager::new_locked(db.clone());
+}
+
+```
+
 
 ## Challenges
 
 
 1. `WorkingSet` has more generics now: `Snapshot` trait and `SnapshotId(BlockHash)`.
    1. Can they be defined inside Spec? 
-2. How this setup will work inside ZK?
-3. Optional: split storage trait into: Readable storage and `Storag: ReadableStorage` + writing things.
+2. How will this setup work inside ZK?
+3. Are names of types clear? Open to better names
+4.  Optional: split storage trait into: `ReadableStorage` and `Storage: ReadableStorage` + writing things.
