@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::block_state_manager::{Snapshot, TreeQuery};
+use crate::block_state_manager::{Snapshot, SnapshotId, TreeQuery};
 use crate::db::{Database, Storage};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
@@ -15,19 +15,18 @@ pub type DB = Arc<Mutex<Database>>;
 /// Represent CacheLayer that can be used in 2 ways:
 ///  - query own value
 ///  - be saved to database
-pub struct FrozenSnapshot<Id> {
-    id: Id,
+pub struct FrozenSnapshot {
+    id: SnapshotId,
     local_cache: CacheLog,
 }
 
-impl<I: Debug + Clone> Debug for FrozenSnapshot<I> {
+impl Debug for FrozenSnapshot {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "FrozenSnapshot<Id={:?}>", self.get_id())
     }
 }
 
-impl<Id: Clone> Snapshot for FrozenSnapshot<Id> {
-    type Id = Id;
+impl Snapshot for FrozenSnapshot {
     type Key = CacheKey;
     type Value = CacheValue;
 
@@ -42,13 +41,13 @@ impl<Id: Clone> Snapshot for FrozenSnapshot<Id> {
         }
     }
 
-    fn get_id(&self) -> &Self::Id {
-        &self.id
+    fn get_id(&self) -> SnapshotId {
+        self.id
     }
 }
 
-impl<Id> From<FrozenSnapshot<Id>> for CacheLog {
-    fn from(value: FrozenSnapshot<Id>) -> Self {
+impl From<FrozenSnapshot> for CacheLog {
+    fn from(value: FrozenSnapshot) -> Self {
         value.local_cache
     }
 }
@@ -74,7 +73,7 @@ pub struct StateCheckpoint<P: Storage, SnapshotId: Clone> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>,
+    parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
 }
 
 
@@ -83,7 +82,7 @@ impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
         P: Storage,
         SnapshotId: Eq + Hash + Clone
 {
-    pub fn new(db: DB, parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>) -> Self {
+    pub fn new(db: DB, parent: TreeQuery<P, FrozenSnapshot, SnapshotId>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -101,7 +100,7 @@ impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
         }
     }
 
-    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<SnapshotId>) {
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
             id: self.parent.get_id(),
@@ -182,7 +181,7 @@ pub struct WorkingSet<P: Storage, SnapshotId: Clone> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>,
+    parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
 }
 
 impl<P, SnapshotId> WorkingSet<P, SnapshotId>

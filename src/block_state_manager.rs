@@ -6,13 +6,12 @@ use crate::db::Storage;
 use crate::state::{FrozenSnapshot};
 use crate::types::{Key, ReadOnlyLock, Value};
 
-// pub type SnapshotId = u64;
+pub type SnapshotId = u64;
 
 /// Snapshot of the state
 /// It can give a value that has been written/created on given state
 /// [`BlockStateManager`] suppose to operate over those
 pub trait Snapshot {
-    type Id: Clone;
     type Key;
     type Value: Clone;
 
@@ -20,16 +19,16 @@ pub trait Snapshot {
     fn get_value(&self, key: &Self::Key) -> Option<Self::Value>;
 
     /// Helper method for mapping
-    fn get_id(&self) -> &Self::Id;
+    fn get_id(&self) -> SnapshotId;
 }
 
 
 pub struct TreeQuery<P, S, Bh>
     where
         P: Storage,
-        S: Snapshot<Id=Bh>
+        S: Snapshot
 {
-    pub id: Bh,
+    pub id: SnapshotId,
     pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
@@ -37,11 +36,11 @@ pub struct TreeQuery<P, S, Bh>
 impl<P, S, Bh> TreeQuery<P, S, Bh>
     where
         P: Storage,
-        S: Snapshot<Id=Bh>,
+        S: Snapshot,
         Bh: Eq + Hash + Clone,
 
 {
-    pub fn new(id: S::Id, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
+    pub fn new(id: SnapshotId, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
             manager,
@@ -53,14 +52,14 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
         manager.get_value_recursively(&self.id, key)
     }
 
-    pub fn get_id(&self) -> S::Id {
-        self.id.clone()
+    pub fn get_id(&self) -> SnapshotId {
+        self.id
     }
 }
 
 
 #[derive(Debug)]
-pub struct BlockStateManager<P: Storage, S: Snapshot<Id=Bh>, Bh> {
+pub struct BlockStateManager<P: Storage, S: Snapshot, Bh> {
     // Storage
     db: Arc<Mutex<P>>,
     // Helpers
@@ -73,11 +72,15 @@ pub struct BlockStateManager<P: Storage, S: Snapshot<Id=Bh>, Bh> {
     chain_forks: HashMap<Bh, Vec<Bh>>,
     // Reverse: child_block -> parent
     blocks_to_parent: HashMap<Bh, Bh>,
+
+    // Helper mappings
+    latest_snapshot_id: SnapshotId,
+    snapshot_id_to_block_hash: HashMap<SnapshotId, Bh>,
 }
 
 
 pub trait QueryParents<S: Snapshot> {
-    fn get_value_recursively(&self, snapshot_block_hash: &S::Id, key: &S::Key) -> Option<S::Value>;
+    fn get_value_recursively(&self, snapshot_block_hash: SnapshotId, key: &S::Key) -> Option<S::Value>;
 }
 
 // Separate IMPL block, so no `Into<Payload>` bound here
@@ -85,10 +88,11 @@ pub trait QueryParents<S: Snapshot> {
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
         P: Storage,
-        S: Snapshot<Id=Bh>,
+        S: Snapshot,
         Bh: Eq + Hash + Clone
 {
-    pub fn get_value_recursively(&self, snapshot_block_hash: &S::Id, key: &S::Key) -> Option<S::Value> {
+    pub fn get_value_recursively(&self, snapshot_id: &SnapshotId, key: &S::Key) -> Option<S::Value> {
+        let snapshot_block_hash = self.snapshot_id_to_block_hash.get(snapshot_id)?;
         let parent_block_hash = self.blocks_to_parent.get(snapshot_block_hash)?;
         let mut parent_snapshot = self.snapshots.get(parent_block_hash);
         while parent_snapshot.is_some() {
@@ -97,7 +101,8 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
             if value.is_some() {
                 return value;
             }
-            let parent_block_hash = self.blocks_to_parent.get(snapshot.get_id())?;
+            let current_block_hash = self.snapshot_id_to_block_hash.get(&snapshot.get_id())?;
+            let parent_block_hash = self.blocks_to_parent.get(current_block_hash)?;
             parent_snapshot = self.snapshots.get(parent_block_hash);
         }
         None
@@ -108,7 +113,7 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
         P: Storage,
-        S: Snapshot<Id=Bh> + Into<P::Payload>,
+        S: Snapshot + Into<P::Payload>,
         Bh: Eq + Hash + Clone
 {
     pub fn new_locked(db: Arc<Mutex<P>>) -> Arc<RwLock<Self>> {
@@ -118,6 +123,8 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
             blocks_to_parent: Default::default(),
             snapshots: Default::default(),
             self_ref: None,
+            snapshot_id_to_block_hash: Default::default(),
+            latest_snapshot_id: Default::default(),
         }));
         let self_ref = block_state_manager.clone();
         {
@@ -135,14 +142,17 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
         self.chain_forks.is_empty()
             && self.blocks_to_parent.is_empty()
             && self.snapshots.is_empty()
+            && self.snapshot_id_to_block_hash.is_empty()
     }
 
     pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeQuery<P, S, Bh> {
+        self.latest_snapshot_id += 1;
         let new_snapshot_ref = TreeQuery {
-            id: current_block_hash.clone(),
+            id: self.latest_snapshot_id,
             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
         };
 
+        self.snapshot_id_to_block_hash.insert(self.latest_snapshot_id, current_block_hash.clone());
 
         let c = self.blocks_to_parent.insert(current_block_hash.clone(), prev_block_hash.clone());
         // TODO: Maybe assert that parent is the same? Then
@@ -153,11 +163,19 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
     }
 
     pub fn add_snapshot(&mut self, snapshot: S) {
-        self.snapshots.insert(snapshot.get_id().clone(), snapshot);
+        let snapshot_block_hash = self.snapshot_id_to_block_hash.get(&snapshot.get_id()).unwrap();
+        self.snapshots.insert(snapshot_block_hash.clone(), snapshot);
+    }
+
+    fn remove_snapshot(&mut self, block_hash: &Bh) -> S {
+        let snapshot = self.snapshots.remove(&block_hash).expect("Tried to remove non-existing snapshot: self.snapshots");
+        let remove_block_hash = self.snapshot_id_to_block_hash.remove(&snapshot.get_id()).unwrap();
+        // assert_eq!(&remove_block_hash, block_hash, "something");
+        snapshot
     }
 
     pub fn finalize_snapshot(&mut self, block_hash: &Bh) {
-        let snapshot = self.snapshots.remove(&block_hash).expect("Tried to finalize non-existing snapshot: self.snapshots");
+        let snapshot = self.remove_snapshot(block_hash);
         let payload = snapshot.into();
         {
             let mut db = self.db.lock().unwrap();
@@ -175,10 +193,8 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
                 let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
                 to_discard.extend(next_children_to_discard);
 
-                if let Some(_snapshot) = self.snapshots.remove(&next_to_discard) {
-                    self.blocks_to_parent.remove(&next_to_discard).unwrap();
-                    self.snapshots.remove(&next_to_discard).unwrap();
-                }
+                self.blocks_to_parent.remove(&next_to_discard).unwrap();
+                self.remove_snapshot(&next_to_discard);
             }
         }
     }
@@ -191,7 +207,7 @@ mod tests {
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeQuery<Database, FrozenSnapshot<BlockHash>, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot<BlockHash> {
+    fn write_values(db: DB, snapshot_ref: TreeQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(db.clone(), snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {
@@ -210,7 +226,7 @@ mod tests {
         #[test]
         fn new() {
             let db = DB::default();
-            let state_manager = BlockStateManager::<Database, FrozenSnapshot<BlockHash>, BlockHash>::new_locked(db.clone());
+            let state_manager = BlockStateManager::<Database, FrozenSnapshot, BlockHash>::new_locked(db.clone());
             let state_manager = state_manager.write().unwrap();
             assert!(state_manager.self_ref.is_some());
             {

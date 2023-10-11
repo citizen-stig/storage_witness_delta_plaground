@@ -16,7 +16,7 @@ pub enum Operation {
 }
 
 
-pub struct SampleSTF<P: Storage<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
+pub struct SampleSTF<P: Storage<Payload=CacheLog>, S: Snapshot, Bh> {
     phantom_persistence: PhantomData<P>,
     phantom_snapshot: PhantomData<S>,
     phantom_bh: PhantomData<Bh>,
@@ -27,7 +27,7 @@ pub struct SampleSTF<P: Storage<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
 impl<P, S, Bh> SampleSTF<P, S, Bh>
     where
         P: Storage<Payload=CacheLog>,
-        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>
+        S: Snapshot<Key=CacheKey, Value=CacheValue>
 {
     pub fn new(db: DB) -> Self {
         Self {
@@ -43,7 +43,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 impl<P, S, Bh> SampleSTF<P, S, Bh>
     where
         P: Storage<Payload=CacheLog>,
-        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        S: Snapshot<Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone,
 {
     fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, Bh>, operation: Operation) -> StateCheckpoint<P, Bh> {
@@ -73,13 +73,13 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
     where
         P: Storage<Payload=CacheLog>,
-        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        S: Snapshot<Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone
 {
     type Witness = Witness;
     type BlobTransaction = Operation;
-    type SnapshotRef = TreeQuery<P, FrozenSnapshot<Bh>, Bh>;
-    type ChangeSet = FrozenSnapshot<Bh>;
+    type SnapshotRef = TreeQuery<P, FrozenSnapshot, Bh>;
+    type ChangeSet = FrozenSnapshot;
 
     fn apply_slot<'a, I>(&mut self, base: Self::SnapshotRef, blobs: I) -> (Self::Witness, Self::ChangeSet) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);

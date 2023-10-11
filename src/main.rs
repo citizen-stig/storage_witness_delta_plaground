@@ -37,7 +37,7 @@ fn runner<Stf, P, S, B, Bh>(
     // This constraint is for a map.
         Bh: Eq + Hash + Clone + Display,
         P: Storage,
-        S: Snapshot<Id=Bh> + Into<P::Payload>,
+        S: Snapshot + Into<P::Payload>,
         Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, S, Bh>>,
 
 {
@@ -75,7 +75,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, FrozenSnapshot<BlockHash>, BlockHash> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, FrozenSnapshot, BlockHash> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let block_state_manager = BlockStateManager::new_locked(db.clone());
