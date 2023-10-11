@@ -247,4 +247,4 @@ fn main() {
    1. Can they be defined inside Spec? 
 2. How will this setup work inside ZK?
 3. Are names of types clear? Open to better names
-4.  Optional: split storage trait into: `ReadableStorage` and `Storage: ReadableStorage` + writing things.
+Optional: split storage trait into: `ReadableStorage` and `Storage: ReadableStorage` + writing things.

@@ -129,4 +129,8 @@ TODO:
 # 11.10
 
  - Should Snapshot::Id bounds of `Eq + Hash + Clone` be on trait or added on required impls?
+ - Is it better to do "dancing" with 2 implementation of Snapshot traits, rather than explicitly depend on `BlockStateManager`
+   - What about "native" then?
+ - Should we use `ParentsLookup` trait and block state manager just implements it?
+ - Where `Snapshot` trait should live? Can it live in `BlockStateManager` trait? What is advantage of having it in
  - 

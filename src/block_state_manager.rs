@@ -61,6 +61,7 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
 }
 
 // Separate IMPL block, so no `Into<Payload>` bound here
+// Can it be trait implementation?
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
         P: Persistence,
