@@ -22,7 +22,9 @@ pub struct TreeQuery<P, S, Bh>
 impl<P, S, Bh> TreeQuery<P, S, Bh>
     where
         P: Persistence,
-        S: Snapshot<Id=Bh>
+        S: Snapshot<Id=Bh>,
+        Bh: Eq + Hash + Clone,
+
 {
     pub fn new(id: S::Id, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
@@ -30,25 +32,13 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
             manager,
         }
     }
-}
 
-impl<P, S, Bh> Snapshot for TreeQuery<P, S, Bh>
-    where
-        P: Persistence,
-        S: Snapshot<Id=Bh> + Into<P::Payload>,
-        Bh: Eq + Hash + Clone
-{
-    type Id = Bh;
-    type Key = S::Key;
-    type Value = S::Value;
-
-    /// Queries value recursively from associated manager
-    fn get_value(&self, key: &Self::Key) -> Option<Self::Value> {
+    pub fn get_value(&self, key: &S::Key) -> Option<S::Value> {
         let manager = self.manager.read().unwrap();
         manager.get_value_recursively(&self.id, key)
     }
 
-    fn get_id(&self) -> &Self::Id {
+    pub fn get_id(&self) -> &S::Id {
         &self.id
     }
 }
@@ -76,6 +66,29 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
         P: Persistence,
+        S: Snapshot<Id=Bh>,
+        Bh: Eq + Hash + Clone
+{
+    pub fn get_value_recursively(&self, snapshot_block_hash: &S::Id, key: &S::Key) -> Option<S::Value> {
+        let parent_block_hash = self.blocks_to_parent.get(snapshot_block_hash)?;
+        let mut parent_snapshot = self.snapshots.get(parent_block_hash);
+        while parent_snapshot.is_some() {
+            let snapshot = parent_snapshot.unwrap();
+            let value = snapshot.get_value(key);
+            if value.is_some() {
+                return value;
+            }
+            let parent_block_hash = self.blocks_to_parent.get(snapshot.get_id())?;
+            parent_snapshot = self.snapshots.get(parent_block_hash);
+        }
+        None
+    }
+}
+
+
+impl<P, S, Bh> BlockStateManager<P, S, Bh>
+    where
+        P: Persistence,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
         Bh: Eq + Hash + Clone
 {
@@ -93,21 +106,6 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
             bm.self_ref = Some(self_ref);
         }
         block_state_manager
-    }
-
-    pub fn get_value_recursively(&self, snapshot_block_hash: &S::Id, key: &S::Key) -> Option<S::Value> {
-        let parent_block_hash = self.blocks_to_parent.get(snapshot_block_hash)?;
-        let mut parent_snapshot = self.snapshots.get(parent_block_hash);
-        while parent_snapshot.is_some() {
-            let snapshot = parent_snapshot.unwrap();
-            let value = snapshot.get_value(key);
-            if value.is_some() {
-                return value;
-            }
-            let parent_block_hash = self.blocks_to_parent.get(snapshot.get_id())?;
-            parent_snapshot = self.snapshots.get(parent_block_hash);
-        }
-        None
     }
 
     pub fn stop(mut self) {

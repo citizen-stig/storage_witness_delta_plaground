@@ -1,6 +1,8 @@
+use std::hash::Hash;
 use std::marker::PhantomData;
 use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
+use crate::block_state_manager::TreeQuery;
 use crate::db::Persistence;
 use crate::rollup_interface::Snapshot;
 use crate::state::{DB, FrozenSnapshot, StateCheckpoint};
@@ -34,28 +36,39 @@ pub enum Operation {
 }
 
 
-pub struct SampleSTF<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> {
+pub struct SampleSTF<P: Persistence<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
     state_root: u64,
     phantom_persistence: PhantomData<P>,
     phantom_snapshot: PhantomData<S>,
+    phantom_bh: PhantomData<Bh>,
     // TODO: Should be read only db
     db: DB,
 }
 
-impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> SampleSTF<P, S> {
+impl<P, S, Bh> SampleSTF<P, S, Bh>
+    where
+        P: Persistence<Payload=CacheLog>,
+        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>
+{
     pub fn new(db: DB) -> Self {
         Self {
             state_root: 0,
             phantom_persistence: PhantomData,
             phantom_snapshot: PhantomData,
+            phantom_bh: PhantomData,
             db,
         }
     }
 }
 
 //
-impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> SampleSTF<P, S> {
-    fn apply_operation(&mut self, checkpoint: StateCheckpoint<S>, operation: Operation) -> StateCheckpoint<S> {
+impl<P, S, Bh> SampleSTF<P, S, Bh>
+    where
+        P: Persistence<Payload=CacheLog>,
+        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        Bh: Eq + Hash + Clone,
+{
+    fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, S, Bh>, operation: Operation) -> StateCheckpoint<P, S, Bh> {
         let mut working_set = checkpoint.to_revertable();
         match operation {
             Operation::Get(key) => {
@@ -78,12 +91,17 @@ impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValu
     }
 }
 
-impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValue>> STF for SampleSTF<P, S> {
+impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
+    where
+        P: Persistence<Payload=CacheLog>,
+        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        Bh: Eq + Hash + Clone
+{
     type StateRoot = u64;
     type Witness = Witness;
     type BlobTransaction = Operation;
-    type CheckpointRef = S;
-    type Snapshot = FrozenSnapshot<S::Id>;
+    type CheckpointRef = TreeQuery<P, S, Bh>;
+    type Snapshot = FrozenSnapshot<Bh>;
 
     fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);

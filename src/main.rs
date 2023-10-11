@@ -71,7 +71,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, TreeQuery<Database, FrozenSnapshot<BlockHash>, BlockHash>> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, FrozenSnapshot<BlockHash>, BlockHash> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());

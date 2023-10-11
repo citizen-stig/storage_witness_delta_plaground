@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
+use crate::block_state_manager::TreeQuery;
 use crate::db::{Database, Persistence};
 use crate::rollup_interface::Snapshot;
 use crate::types::{Key, Value};
@@ -67,17 +69,22 @@ impl Persistence for Database {
     }
 }
 
-// Combining with existing sov-api
-pub struct StateCheckpoint<S: Snapshot> {
+/// Note: S: Snapshot can be inside spec, with Bh, and Bh assigned from DA spec from above
+pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: S,
+    parent: TreeQuery<P, S, Bh>,
 }
 
 
-impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> StateCheckpoint<S> {
-    pub fn new(db: DB, parent: S) -> Self {
+impl<P, S, Bh> StateCheckpoint<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        Bh: Eq + Hash + Clone
+{
+    pub fn new(db: DB, parent: TreeQuery<P, S, Bh>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -86,7 +93,7 @@ impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> StateCheckpoint<S> {
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<S> {
+    pub fn to_revertable(self) -> WorkingSet<P, S, Bh> {
         WorkingSet {
             db: self.db,
             cache: RevertableWriter::new(self.cache),
@@ -172,30 +179,35 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<S: Snapshot<Key=CacheKey, Value=CacheValue>> {
+pub struct WorkingSet<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: S,
+    parent: TreeQuery<P, S, Bh>,
 }
 
-impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> WorkingSet<S> {
+impl<P, S, Bh> WorkingSet<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
+        Bh: Eq + Hash + Clone,
+{
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
         let cache_key = CacheKey::from(key.clone());
-        // Read from own cache
+// Read from own cache
         let value = self.cache.inner.get(key);
         if value.is_some() {
             return value;
         }
 
-        // Check parent recursively
+// Check parent recursively
         let cache_value = match self.parent.get_value(&cache_key) {
             Some(value) => Some(value),
             None => {
                 let db = self.db.lock().unwrap();
                 let db_key = key.to_string();
-                // TODO: Ugly
+// TODO: Ugly
                 db.get(&db_key).map(|v| CacheValue::from(Value::from(v)))
             }
         };
@@ -214,7 +226,7 @@ impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> WorkingSet<S> {
     }
 
 
-    pub fn commit(self) -> StateCheckpoint<S> {
+    pub fn commit(self) -> StateCheckpoint<P, S, Bh> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.commit(),
@@ -223,7 +235,7 @@ impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> WorkingSet<S> {
         }
     }
 
-    pub fn revert(self) -> StateCheckpoint<S> {
+    pub fn revert(self) -> StateCheckpoint<P, S, Bh> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.revert(),
