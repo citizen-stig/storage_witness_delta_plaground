@@ -27,7 +27,7 @@ impl Database {
 pub fn persist_cache(db: &mut Database, cache: CacheLog) {}
 
 
-pub trait Persistence {
+pub trait Storage {
     type Payload;
     fn commit(&mut self, data: Self::Payload);
 }

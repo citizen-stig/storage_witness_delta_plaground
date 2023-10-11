@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::block_state_manager::{Snapshot, TreeQuery};
-use crate::db::{Database, Persistence};
+use crate::db::{Database, Storage};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
 
@@ -54,7 +54,7 @@ impl<Id> From<FrozenSnapshot<Id>> for CacheLog {
 }
 
 
-impl Persistence for Database {
+impl Storage for Database {
     type Payload = CacheLog;
 
     fn commit(&mut self, data: Self::Payload) {
@@ -70,7 +70,7 @@ impl Persistence for Database {
 }
 
 /// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
-pub struct StateCheckpoint<P: Persistence, SnapshotId: Clone> {
+pub struct StateCheckpoint<P: Storage, SnapshotId: Clone> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
@@ -80,7 +80,7 @@ pub struct StateCheckpoint<P: Persistence, SnapshotId: Clone> {
 
 impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
     where
-        P: Persistence,
+        P: Storage,
         SnapshotId: Eq + Hash + Clone
 {
     pub fn new(db: DB, parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>) -> Self {
@@ -178,7 +178,7 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Persistence, SnapshotId: Clone> {
+pub struct WorkingSet<P: Storage, SnapshotId: Clone> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
@@ -187,7 +187,7 @@ pub struct WorkingSet<P: Persistence, SnapshotId: Clone> {
 
 impl<P, SnapshotId> WorkingSet<P, SnapshotId>
     where
-        P: Persistence,
+        P: Storage,
         SnapshotId: Eq + Hash + Clone,
 {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed

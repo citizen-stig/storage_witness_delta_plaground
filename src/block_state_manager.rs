@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::db::Persistence;
+use crate::db::Storage;
 use crate::state::{FrozenSnapshot};
 use crate::types::{Key, ReadOnlyLock, Value};
 
@@ -26,7 +26,7 @@ pub trait Snapshot {
 
 pub struct TreeQuery<P, S, Bh>
     where
-        P: Persistence,
+        P: Storage,
         S: Snapshot<Id=Bh>
 {
     pub id: Bh,
@@ -36,7 +36,7 @@ pub struct TreeQuery<P, S, Bh>
 
 impl<P, S, Bh> TreeQuery<P, S, Bh>
     where
-        P: Persistence,
+        P: Storage,
         S: Snapshot<Id=Bh>,
         Bh: Eq + Hash + Clone,
 
@@ -60,7 +60,7 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
 
 
 #[derive(Debug)]
-pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
+pub struct BlockStateManager<P: Storage, S: Snapshot<Id=Bh>, Bh> {
     // Storage
     db: Arc<Mutex<P>>,
     // Helpers
@@ -84,7 +84,7 @@ pub trait QueryParents<S: Snapshot> {
 // Can it be trait implementation?
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
-        P: Persistence,
+        P: Storage,
         S: Snapshot<Id=Bh>,
         Bh: Eq + Hash + Clone
 {
@@ -107,7 +107,7 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
 
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
-        P: Persistence,
+        P: Storage,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
         Bh: Eq + Hash + Clone
 {

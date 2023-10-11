@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use crate::block_state_manager::{BlockStateManager, Snapshot, TreeQuery};
-use crate::db::{Database, Persistence};
+use crate::db::{Database, Storage};
 use crate::rollup_interface::{STF};
 use crate::state::{FrozenSnapshot};
 use crate::stf::{Operation, SampleSTF};
@@ -36,7 +36,7 @@ fn runner<Stf, P, S, B, Bh>(
     where
     // This constraint is for a map.
         Bh: Eq + Hash + Clone + Display,
-        P: Persistence,
+        P: Storage,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
         Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, S, Bh>>,
 

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::block_state_manager::{Snapshot, TreeQuery};
-use crate::db::Persistence;
+use crate::db::Storage;
 use crate::rollup_interface::STF;
 use crate::state::{DB, FrozenSnapshot, StateCheckpoint};
 use crate::types::{Key, Value};
@@ -16,7 +16,7 @@ pub enum Operation {
 }
 
 
-pub struct SampleSTF<P: Persistence<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
+pub struct SampleSTF<P: Storage<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
     phantom_persistence: PhantomData<P>,
     phantom_snapshot: PhantomData<S>,
     phantom_bh: PhantomData<Bh>,
@@ -26,7 +26,7 @@ pub struct SampleSTF<P: Persistence<Payload=CacheLog>, S: Snapshot<Id=Bh>, Bh> {
 
 impl<P, S, Bh> SampleSTF<P, S, Bh>
     where
-        P: Persistence<Payload=CacheLog>,
+        P: Storage<Payload=CacheLog>,
         S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>
 {
     pub fn new(db: DB) -> Self {
@@ -42,7 +42,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 //
 impl<P, S, Bh> SampleSTF<P, S, Bh>
     where
-        P: Persistence<Payload=CacheLog>,
+        P: Storage<Payload=CacheLog>,
         S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone,
 {
@@ -72,7 +72,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 
 impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
     where
-        P: Persistence<Payload=CacheLog>,
+        P: Storage<Payload=CacheLog>,
         S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone
 {
