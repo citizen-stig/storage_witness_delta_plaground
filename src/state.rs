@@ -71,21 +71,20 @@ impl Persistence for Database {
 }
 
 /// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
-pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
+pub struct StateCheckpoint<P: Persistence, SnapshotId: Clone> {
     db: DB,
     cache: CacheLog,
     witness: Witness,
-    parent: TreeQuery<P, S, SnapshotId>,
+    parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>,
 }
 
 
-impl<P, S, SnapshotId> StateCheckpoint<P, S, SnapshotId>
+impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
     where
         P: Persistence,
-        S: Snapshot<Id=SnapshotId, Key=CacheKey, Value=CacheValue>,
         SnapshotId: Eq + Hash + Clone
 {
-    pub fn new(db: DB, parent: TreeQuery<P, S, SnapshotId>) -> Self {
+    pub fn new(db: DB, parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>) -> Self {
         Self {
             db,
             cache: Default::default(),
@@ -94,7 +93,7 @@ impl<P, S, SnapshotId> StateCheckpoint<P, S, SnapshotId>
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<P, S, SnapshotId> {
+    pub fn to_revertable(self) -> WorkingSet<P, SnapshotId> {
         WorkingSet {
             db: self.db,
             cache: RevertableWriter::new(self.cache),
@@ -103,7 +102,7 @@ impl<P, S, SnapshotId> StateCheckpoint<P, S, SnapshotId>
         }
     }
 
-    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<S::Id>) {
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<SnapshotId>) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
             id: self.parent.get_id(),
@@ -180,18 +179,17 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
+pub struct WorkingSet<P: Persistence, SnapshotId: Clone> {
     db: DB,
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: TreeQuery<P, S, SnapshotId>,
+    parent: TreeQuery<P, FrozenSnapshot<SnapshotId>, SnapshotId>,
 }
 
-impl<P, S, Bh> WorkingSet<P, S, Bh>
+impl<P, SnapshotId> WorkingSet<P, SnapshotId>
     where
         P: Persistence,
-        S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
-        Bh: Eq + Hash + Clone,
+        SnapshotId: Eq + Hash + Clone,
 {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
@@ -227,7 +225,7 @@ impl<P, S, Bh> WorkingSet<P, S, Bh>
     }
 
 
-    pub fn commit(self) -> StateCheckpoint<P, S, Bh> {
+    pub fn commit(self) -> StateCheckpoint<P, SnapshotId> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.commit(),
@@ -236,7 +234,7 @@ impl<P, S, Bh> WorkingSet<P, S, Bh>
         }
     }
 
-    pub fn revert(self) -> StateCheckpoint<P, S, Bh> {
+    pub fn revert(self) -> StateCheckpoint<P, SnapshotId> {
         StateCheckpoint {
             db: self.db,
             cache: self.cache.revert(),

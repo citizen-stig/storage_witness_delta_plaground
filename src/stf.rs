@@ -46,7 +46,7 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
         S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone,
 {
-    fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, S, Bh>, operation: Operation) -> StateCheckpoint<P, S, Bh> {
+    fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, Bh>, operation: Operation) -> StateCheckpoint<P, Bh> {
         let mut working_set = checkpoint.to_revertable();
         match operation {
             Operation::Get(key) => {
@@ -78,10 +78,10 @@ impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
 {
     type Witness = Witness;
     type BlobTransaction = Operation;
-    type SnapshotRef = TreeQuery<P, S, Bh>;
-    type Snapshot = FrozenSnapshot<Bh>;
+    type SnapshotRef = TreeQuery<P, FrozenSnapshot<Bh>, Bh>;
+    type ChangeSet = FrozenSnapshot<Bh>;
 
-    fn apply_slot<'a, I>(&mut self, base: Self::SnapshotRef, blobs: I) -> (Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
+    fn apply_slot<'a, I>(&mut self, base: Self::SnapshotRef, blobs: I) -> (Self::Witness, Self::ChangeSet) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);
         for operation in blobs {
             checkpoint = self.apply_operation(checkpoint, operation);

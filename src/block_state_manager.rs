@@ -60,6 +60,11 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     blocks_to_parent: HashMap<Bh, Bh>,
 }
 
+
+pub trait QueryParents<S: Snapshot> {
+    fn get_value_recursively(&self, snapshot_block_hash: &S::Id, key: &S::Key) -> Option<S::Value>;
+}
+
 // Separate IMPL block, so no `Into<Payload>` bound here
 // Can it be trait implementation?
 impl<P, S, Bh> BlockStateManager<P, S, Bh>

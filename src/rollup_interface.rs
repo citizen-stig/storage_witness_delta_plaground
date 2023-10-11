@@ -18,14 +18,14 @@ pub trait STF {
     type BlobTransaction;
 
     type SnapshotRef;
-    type Snapshot;
+    type ChangeSet;
 
 
     fn apply_slot<'a, I>(
         &mut self,
         base: Self::SnapshotRef,
         blobs: I,
-    ) -> (Self::Witness, Self::Snapshot)
+    ) -> (Self::Witness, Self::ChangeSet)
         where
             I: IntoIterator<Item=Self::BlobTransaction>;
 }

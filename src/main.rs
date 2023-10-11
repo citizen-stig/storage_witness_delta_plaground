@@ -23,6 +23,8 @@ mod rollup_interface;
 fn runner<Stf, P, S, B, Bh>(
     mut stf: Stf,
     block_state_manager: Arc<RwLock<BlockStateManager<P, S, Bh>>>,
+
+
     // Simulates arrival of DA blocks
     chain: Vec<Bh>,
     // Matches length of chain, and when value is present this block is
@@ -34,7 +36,7 @@ fn runner<Stf, P, S, B, Bh>(
         Bh: Eq + Hash + Clone + Display,
         P: Persistence,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
-        Stf: STF<BlobTransaction=B, Snapshot=S, SnapshotRef=TreeQuery<P, S, Bh>>,
+        Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, S, Bh>>,
 
 {
     assert_eq!(chain.len(), finalized_blocks.len());
