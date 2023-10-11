@@ -118,3 +118,10 @@ Questions
      - Maybe use Vec<u8>
      - Passing DaSpec inside Spec
  - Self_ref in BlockStateManager can be removed and use just wrapper Type
+   - 
+
+
+TODO:
+ - Make Snapshot ID generic
+ - Replace SnapshotID with BlockHash in StateManager
+ - 

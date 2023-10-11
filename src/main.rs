@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::block_state_manager::{BlockHash, BlockStateManager, TreeQuery};
 use crate::db::{Database, Persistence};
 use crate::rollup_interface::{Snapshot};
-use crate::state::FrozenSnapshot;
+use crate::state::{FrozenSnapshot};
 use crate::stf::{Operation, SampleSTF, STF};
 use crate::types::{Key, Value};
 
@@ -33,7 +33,7 @@ fn runner<Stf, P, S, B, Bh>(
     // This constraint is for a map.
         Bh: PartialEq + Eq + Hash + Clone + Display,
         P: Persistence,
-        S: Snapshot + Into<P::Payload>,
+        S: Snapshot<Id=Bh> + Into<P::Payload>,
         Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeQuery<P, S, Bh>>,
 
 {
@@ -71,7 +71,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, TreeQuery<Database, FrozenSnapshot, BlockHash>> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, TreeQuery<Database, FrozenSnapshot<BlockHash>, BlockHash>> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let fork_state_manager = BlockStateManager::new_locked(db.clone());

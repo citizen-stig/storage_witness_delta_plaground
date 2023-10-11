@@ -83,7 +83,7 @@ impl<P: Persistence<Payload=CacheLog>, S: Snapshot<Key=CacheKey, Value=CacheValu
     type Witness = Witness;
     type BlobTransaction = Operation;
     type CheckpointRef = S;
-    type Snapshot = FrozenSnapshot;
+    type Snapshot = FrozenSnapshot<S::Id>;
 
     fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);

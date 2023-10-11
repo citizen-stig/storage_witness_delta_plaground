@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::{Formatter};
+use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
@@ -13,18 +13,19 @@ pub type SnapshotId = u64;
 
 
 ///
-pub struct FrozenSnapshot {
-    id: SnapshotId,
+pub struct FrozenSnapshot<I> {
+    id: I,
     local_cache: CacheLog,
 }
 
-impl std::fmt::Debug for FrozenSnapshot {
+impl<I: Debug + Clone + Default> Debug for FrozenSnapshot<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "FrozenSnapshot<Id={:?}>", self.get_id())
     }
 }
 
-impl Snapshot for FrozenSnapshot {
+impl<I: Clone + Default> Snapshot for FrozenSnapshot<I> {
+    type Id = I;
     type Key = CacheKey;
     type Value = CacheValue;
 
@@ -39,15 +40,13 @@ impl Snapshot for FrozenSnapshot {
         }
     }
 
-    fn get_id(&self) -> SnapshotId {
-        self.id
+    fn get_id(&self) -> &Self::Id {
+        &self.id
     }
 }
 
-// 2^64
-
-impl From<FrozenSnapshot> for CacheLog {
-    fn from(value: FrozenSnapshot) -> Self {
+impl<I> From<FrozenSnapshot<I>> for CacheLog {
+    fn from(value: FrozenSnapshot<I>) -> Self {
         value.local_cache
     }
 }
@@ -96,10 +95,10 @@ impl<S: Snapshot<Key=CacheKey, Value=CacheValue>> StateCheckpoint<S> {
         }
     }
 
-    pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
+    pub fn freeze(mut self) -> (Witness, FrozenSnapshot<S::Id>) {
         let witness = std::mem::replace(&mut self.witness, Default::default());
         let snapshot = FrozenSnapshot {
-            id: self.parent.get_id(),
+            id: self.parent.get_id().clone(),
             local_cache: self.cache,
         };
 
