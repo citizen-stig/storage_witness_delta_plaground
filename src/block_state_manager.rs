@@ -9,13 +9,21 @@ use crate::types::{Key, ReadOnlyLock, Value};
 
 pub type BlockHash = String;
 
-pub struct TreeQuery<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
+pub struct TreeQuery<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh>
+{
     pub id: Bh,
     pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
 }
 
 
-impl<P: Persistence, S: Snapshot<Id=Bh>, Bh> TreeQuery<P, S, Bh> {
+impl<P, S, Bh> TreeQuery<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh>
+{
     pub fn new(id: S::Id, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
         Self {
             id,
@@ -24,7 +32,12 @@ impl<P: Persistence, S: Snapshot<Id=Bh>, Bh> TreeQuery<P, S, Bh> {
     }
 }
 
-impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> Snapshot for TreeQuery<P, S, Bh> {
+impl<P, S, Bh> Snapshot for TreeQuery<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh> + Into<P::Payload>,
+        Bh: Eq + Hash + Clone
+{
     type Id = Bh;
     type Key = S::Key;
     type Value = S::Value;
@@ -60,8 +73,11 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
 
 }
 
-impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh: PartialEq + Eq + Hash + Clone> BlockStateManager<P, S, Bh>
-
+impl<P, S, Bh> BlockStateManager<P, S, Bh>
+    where
+        P: Persistence,
+        S: Snapshot<Id=Bh> + Into<P::Payload>,
+        Bh: Eq + Hash + Clone
 {
     pub fn new_locked(db: Arc<Mutex<P>>) -> Arc<RwLock<Self>> {
         let block_state_manager = Arc::new(RwLock::new(Self {
