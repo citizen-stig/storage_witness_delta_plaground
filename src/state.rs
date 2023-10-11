@@ -70,7 +70,7 @@ impl Persistence for Database {
     }
 }
 
-/// Note: S: Snapshot can be inside spec, with Bh, and Bh assigned from DA spec from above
+/// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
 pub struct StateCheckpoint<P: Persistence, S: Snapshot<Id=SnapshotId>, SnapshotId> {
     db: DB,
     cache: CacheLog,

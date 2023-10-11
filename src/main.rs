@@ -7,9 +7,9 @@ use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use crate::block_state_manager::{BlockHash, BlockStateManager, TreeQuery};
 use crate::db::{Database, Persistence};
-use crate::rollup_interface::{Snapshot};
+use crate::rollup_interface::{Snapshot, STF};
 use crate::state::{FrozenSnapshot};
-use crate::stf::{Operation, SampleSTF, STF};
+use crate::stf::{Operation, SampleSTF};
 use crate::types::{Key, Value};
 
 mod db;
@@ -47,7 +47,7 @@ fn runner<Stf, P, S, B, Bh>(
                 let mut fm = fork_manager.write().unwrap();
                 fm.get_new_ref(&current_block_hash, &child_block_hash)
             };
-            let (_state_root, _witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
+            let (_witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
             {
                 let mut fm = fork_manager.write().unwrap();
                 fm.add_snapshot(snapshot);

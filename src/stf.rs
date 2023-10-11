@@ -4,31 +4,11 @@ use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
 use crate::block_state_manager::TreeQuery;
 use crate::db::Persistence;
-use crate::rollup_interface::Snapshot;
+use crate::rollup_interface::{Snapshot, STF};
 use crate::state::{DB, FrozenSnapshot, StateCheckpoint};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
 
-pub trait STF {
-    type StateRoot;
-    type Witness;
-    type BlobTransaction;
-
-    type CheckpointRef;
-    type Snapshot;
-
-
-    fn apply_slot<'a, I>(
-        &mut self,
-        base: Self::CheckpointRef,
-        blobs: I,
-    ) ->
-        (Self::StateRoot,
-         Self::Witness,
-         Self::Snapshot)
-        where
-            I: IntoIterator<Item=Self::BlobTransaction>;
-}
 
 pub enum Operation {
     Get(Key),
@@ -91,28 +71,27 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
     }
 }
 
+
 impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
     where
         P: Persistence<Payload=CacheLog>,
         S: Snapshot<Id=Bh, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone
 {
-    type StateRoot = u64;
     type Witness = Witness;
     type BlobTransaction = Operation;
     type CheckpointRef = TreeQuery<P, S, Bh>;
     type Snapshot = FrozenSnapshot<Bh>;
 
-    fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::StateRoot, Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
+    fn apply_slot<'a, I>(&mut self, base: Self::CheckpointRef, blobs: I) -> (Self::Witness, Self::Snapshot) where I: IntoIterator<Item=Self::BlobTransaction> {
         let mut checkpoint = StateCheckpoint::new(self.db.clone(), base);
         for operation in blobs {
             checkpoint = self.apply_operation(checkpoint, operation);
         }
 
         let (witness, snapshot) = checkpoint.freeze();
-        let state_root = self.state_root;
 
-        (state_root, witness, snapshot)
+        (witness, snapshot)
     }
 }
 

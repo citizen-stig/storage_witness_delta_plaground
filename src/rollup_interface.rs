@@ -13,3 +13,22 @@ pub trait Snapshot {
     /// Helper method for mapping
     fn get_id(&self) -> &Self::Id;
 }
+
+pub trait STF {
+    type Witness;
+    type BlobTransaction;
+
+    type CheckpointRef;
+    type Snapshot;
+
+
+    fn apply_slot<'a, I>(
+        &mut self,
+        base: Self::CheckpointRef,
+        blobs: I,
+    ) ->
+        (Self::Witness,
+         Self::Snapshot)
+        where
+            I: IntoIterator<Item=Self::BlobTransaction>;
+}

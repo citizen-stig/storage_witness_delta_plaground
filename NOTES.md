@@ -124,4 +124,8 @@ Questions
 TODO:
  + Make Snapshot ID generic
 + Replace SnapshotID with BlockHash in StateManager
- - 
+
+
+# 11.10
+
+ - Should Snapshot::Id bounds of `Eq + Hash + Clone` be on trait or added on required impls?

@@ -63,6 +63,7 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
 
 }
 
+// Separate IMPL block, so no `Into<Payload>` bound here
 impl<P, S, Bh> BlockStateManager<P, S, Bh>
     where
         P: Persistence,
