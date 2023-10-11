@@ -34,7 +34,7 @@ fn runner<Stf, P, S, B, Bh>(
         Bh: Eq + Hash + Clone + Display,
         P: Persistence,
         S: Snapshot<Id=Bh> + Into<P::Payload>,
-        Stf: STF<BlobTransaction=B, Snapshot=S, CheckpointRef=TreeQuery<P, S, Bh>>,
+        Stf: STF<BlobTransaction=B, Snapshot=S, SnapshotRef=TreeQuery<P, S, Bh>>,
 
 {
     assert_eq!(chain.len(), finalized_blocks.len());

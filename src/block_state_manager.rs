@@ -51,16 +51,13 @@ pub struct BlockStateManager<P: Persistence, S: Snapshot<Id=Bh>, Bh> {
     // Helpers
     self_ref: Option<Arc<RwLock<BlockStateManager<P, S, Bh>>>>,
 
-    // Snapshots
-    // snapshot_id => snapshot
     snapshots: HashMap<Bh, S>,
 
     // L1 forks representation
-    // Chain: prev_block -> child_blocks (forks
+    // Chain: prev_block -> child_blocks
     chain_forks: HashMap<Bh, Vec<Bh>>,
     // Reverse: child_block -> parent
     blocks_to_parent: HashMap<Bh, Bh>,
-
 }
 
 // Separate IMPL block, so no `Into<Payload>` bound here

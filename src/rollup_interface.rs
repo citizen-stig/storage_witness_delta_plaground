@@ -1,7 +1,6 @@
 /// Snapshot of the state
 /// It can give a value that has been written/created on given state
-/// It should not query parents or database
-/// [`ForkTreeManager`] suppose to operate over those
+/// [`BlockStateManager`] suppose to operate over those
 pub trait Snapshot {
     type Id: Clone;
     type Key;
@@ -18,17 +17,15 @@ pub trait STF {
     type Witness;
     type BlobTransaction;
 
-    type CheckpointRef;
+    type SnapshotRef;
     type Snapshot;
 
 
     fn apply_slot<'a, I>(
         &mut self,
-        base: Self::CheckpointRef,
+        base: Self::SnapshotRef,
         blobs: I,
-    ) ->
-        (Self::Witness,
-         Self::Snapshot)
+    ) -> (Self::Witness, Self::Snapshot)
         where
             I: IntoIterator<Item=Self::BlobTransaction>;
 }

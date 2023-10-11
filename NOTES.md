@@ -92,7 +92,7 @@ Questions
  - Think a little more about how ForkTreeManager is going to fit into sov-runner and/or sov-rollup-interface
  - Q: Blazej: Do new traits make sense without the module system?
  - Think how `ForkTreeManager` fits into ZK
- - Q: Nikolai: What is difference between S::Witness and CacheLog tracking reads?
+ - Q: Nikolai: What is the difference between S::Witness and CacheLog tracking reads?
 
 
 # 06.10
@@ -129,3 +129,4 @@ TODO:
 # 11.10
 
  - Should Snapshot::Id bounds of `Eq + Hash + Clone` be on trait or added on required impls?
+ - 
