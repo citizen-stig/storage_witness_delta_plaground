@@ -124,106 +124,32 @@ impl<P: Persistence, S: Snapshot<Id=Bh> + Into<P::Payload>, Bh: PartialEq + Eq +
     }
 
     pub fn finalize_snapshot(&mut self, block_hash: &Bh) {
-        // println!("Finalizing block hash {}", block_hash);
+        let snapshot = self.snapshots.remove(&block_hash).expect("Tried to finalize non-existing snapshot: self.snapshots");
+        let payload = snapshot.into();
+        {
+            let mut db = self.db.lock().unwrap();
+            db.commit(payload);
+        }
 
-        // if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(block_hash) {
-        //     let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
-        //     self.snapshot_id_to_block_hash.remove(&snapshot_id).expect("Data inconsistency: self.snapshot_id_to_block_hash");
-        //     // Commit snapshot
-        //     let payload = snapshot.into();
-        //     let mut db = self.db.lock().unwrap();
-        //     db.commit(payload);
-        //     // TODO: Check snapshot_id to block_has equality
-        // } else {
-        //     // TODO: is it a valid case?
-        //     // println!("Block {} is going to be finalized without producing snapshot", block_hash);
-        // }
-        //
-        // let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
-        // let mut to_discard: Vec<_> = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks")
-        //     .into_iter()
-        //     .filter(|bh| bh != block_hash)
-        //     .collect();
-        // while !to_discard.is_empty() {
-        //     let next_to_discard = to_discard.pop().unwrap();
-        //     let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
-        //     to_discard.extend(next_children_to_discard);
-        //
-        //     if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(&next_to_discard) {
-        //         self.blocks_to_parent.remove(&next_to_discard).unwrap();
-        //         self.snapshots.remove(&snapshot_id).unwrap();
-        //     }
-        //     // TODO: Check snapshot_id to block_hash and clean it too
-        // }
+
+        if let Some(parent_block_hash) = self.blocks_to_parent.remove(block_hash) {
+            let mut to_discard: Vec<_> = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks")
+                .into_iter()
+                .filter(|bh| bh != block_hash)
+                .collect();
+            while !to_discard.is_empty() {
+                let next_to_discard = to_discard.pop().unwrap();
+                let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
+                to_discard.extend(next_children_to_discard);
+
+                if let Some(_snapshot) = self.snapshots.remove(&next_to_discard) {
+                    self.blocks_to_parent.remove(&next_to_discard).unwrap();
+                    self.snapshots.remove(&next_to_discard).unwrap();
+                }
+            }
+        }
     }
 }
-
-//
-// impl<P: Persistence<Payload=CacheLog>> ForkTreeManager for BlockStateManager<P> {
-//     type Snapshot = FrozenSnapshot<SnapshotId>;
-//     type SnapshotRef = TreeManagerSnapshotQuery<P>;
-//     type BlockHash = BlockHash;
-//
-//     fn get_new_ref(&mut self, prev_block_hash: &Self::BlockHash, current_block_hash: &Self::BlockHash) -> Self::SnapshotRef {
-//         let prev_id = self.latest_id;
-//         self.latest_id += 1;
-//         let next_id = self.latest_id;
-//
-//         let new_snapshot_ref = TreeManagerSnapshotQuery {
-//             id: next_id,
-//             manager: ReadOnlyLock::new(self.self_ref.clone().unwrap().clone()),
-//         };
-//
-//
-//         let c = self.blocks_to_parent.insert(current_block_hash.clone(), prev_block_hash.clone());
-//         // TODO: Maybe assert that parent is the same? Then
-//         assert!(c.is_none(), "current block hash has already snapshot requested");
-//         self.chain_forks.entry(prev_block_hash.clone()).or_insert(Vec::new()).push(current_block_hash.clone());
-//         self.block_hash_to_snapshot_id.insert(current_block_hash.clone(), next_id);
-//         self.snapshot_id_to_block_hash.insert(next_id, current_block_hash.clone());
-//
-//         new_snapshot_ref
-//     }
-//
-//     fn add_snapshot(&mut self, snapshot: Self::Snapshot) {
-//         // TODO: Assert it is known snapshot
-//         self.snapshots.insert(snapshot.get_id().clone(), snapshot);
-//     }
-//
-//     fn finalize_snapshot(&mut self, block_hash: &Self::BlockHash) {
-//         println!("Finalizing block hash {}", block_hash);
-//
-//         if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(block_hash) {
-//             let snapshot = self.snapshots.remove(&snapshot_id).expect("Tried to finalize non-existing snapshot: self.snapshots");
-//             self.snapshot_id_to_block_hash.remove(&snapshot_id).expect("Data inconsistency: self.snapshot_id_to_block_hash");
-//             // Commit snapshot
-//             let payload = snapshot.into();
-//             let mut db = self.db.lock().unwrap();
-//             db.commit(payload);
-//             // TODO: Check snapshot_id to block_has equality
-//         } else {
-//             // TODO: is it a valid case?
-//             println!("Block {} is going to be finalized without producing snapshot", block_hash);
-//         }
-//
-//         let parent_block_hash = self.blocks_to_parent.remove(block_hash).expect("Trying to finalize orphan block hash");
-//         let mut to_discard: Vec<_> = self.chain_forks.remove(&parent_block_hash).expect("Inconsistent chain_forks")
-//             .into_iter()
-//             .filter(|bh| bh != block_hash)
-//             .collect();
-//         while !to_discard.is_empty() {
-//             let next_to_discard = to_discard.pop().unwrap();
-//             let next_children_to_discard = self.chain_forks.remove(&next_to_discard).unwrap_or(Default::default());
-//             to_discard.extend(next_children_to_discard);
-//
-//             if let Some(snapshot_id) = self.block_hash_to_snapshot_id.remove(&next_to_discard) {
-//                 self.blocks_to_parent.remove(&next_to_discard).unwrap();
-//                 self.snapshots.remove(&snapshot_id).unwrap();
-//             }
-//             // TODO: Check snapshot_id to block_hash and clean it too
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
