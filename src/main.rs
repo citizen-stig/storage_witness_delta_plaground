@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::block_state_manager::{BlockStateManager, Snapshot, TreeQuery};
 use crate::db::{Database, Storage};
 use crate::rollup_interface::{STF};
-use crate::state::{FrozenSnapshot};
 use crate::stf::{Operation, SampleSTF};
 use crate::types::{Key, Value};
 
@@ -38,34 +37,33 @@ fn runner<Stf, P, S, B, Bh>(
         Bh: Eq + Hash + Clone + Display,
         P: Storage<Key=S::Key, Value=S::Value>,
         S: Snapshot + Into<P::Payload>,
-        Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, S, Bh>>,
-
-{
-    assert_eq!(chain.len(), finalized_blocks.len());
-    for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
-        println!("== Iterating over current block {}", current_block_hash);
-        let forks = batches.remove(&current_block_hash).unwrap_or_default();
-        for (child_block_hash, blob) in forks {
-            println!("Executing fork from prev={} to next={}", current_block_hash, child_block_hash);
-            let snapshot_ref = {
-                let mut fm = block_state_manager.write().unwrap();
-                fm.get_new_ref(&current_block_hash, &child_block_hash)
-            };
-            let (_witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
+        Stf: STF<BlobTransaction=B, ChangeSet=S, SnapshotRef=TreeQuery<P, BlockStateManager<P, S, Bh>>>,
             {
-                let mut fm = block_state_manager.write().unwrap();
-                fm.add_snapshot(snapshot);
+                assert_eq!(chain.len(), finalized_blocks.len());
+                for (current_block_hash, finalized_block_hash) in chain.into_iter().zip(finalized_blocks.into_iter()) {
+                    println!("== Iterating over current block {}", current_block_hash);
+                    let forks = batches.remove(&current_block_hash).unwrap_or_default();
+                    for (child_block_hash, blob) in forks {
+                        println!("Executing fork from prev={} to next={}", current_block_hash, child_block_hash);
+                        let snapshot_ref = {
+                            let mut fm = block_state_manager.write().unwrap();
+                            fm.get_new_ref(&current_block_hash, &child_block_hash)
+                        };
+                        let (_witness, snapshot) = stf.apply_slot(snapshot_ref, blob);
+                        {
+                            let mut fm = block_state_manager.write().unwrap();
+                            fm.add_snapshot(snapshot);
+                        }
+                    }
+                    if let Some(finalized_block_hash) = finalized_block_hash {
+                        let mut fm = block_state_manager.write().unwrap();
+                        fm.finalize_snapshot(&finalized_block_hash);
+                    }
+                    println!("== ========");
+                }
             }
-        }
-        if let Some(finalized_block_hash) = finalized_block_hash {
-            let mut fm = block_state_manager.write().unwrap();
-            fm.finalize_snapshot(&finalized_block_hash);
-        }
-        println!("== ========");
-    }
-}
 
-macro_rules! hashmap {
+            macro_rules! hashmap {
     ($( $key:expr => $val:expr ),*) => {{
         let mut map = std::collections::HashMap::new();
         $( map.insert($key, $val); )*
@@ -75,7 +73,7 @@ macro_rules! hashmap {
 
 fn main() {
     let db = Arc::new(Mutex::new(Database::default()));
-    let stf: SampleSTF<Database, FrozenSnapshot, BlockHash> = SampleSTF::new(db.clone());
+    let stf: SampleSTF<Database, BlockHash> = SampleSTF::new(db.clone());
 
     // Bootstrap fork_state_manager
     let block_state_manager = BlockStateManager::new_locked(db.clone());

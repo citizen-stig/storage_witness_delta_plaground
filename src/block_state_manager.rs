@@ -23,25 +23,26 @@ pub trait Snapshot {
 }
 
 
-pub struct TreeQuery<P, S, Bh>
+pub struct TreeQuery<P, Q>
     where
         P: Storage,
-        S: Snapshot
+        Q: QueryParents,
+
 {
     pub id: SnapshotId,
     pub db: Arc<Mutex<P>>,
-    pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
+    // pub manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>,
+    pub manager: ReadOnlyLock<Q>,
 }
 
 
-impl<P, S, Bh> TreeQuery<P, S, Bh>
+impl<P, Q> TreeQuery<P, Q>
     where
         P: Storage,
-        S: Snapshot,
-        Bh: Eq + Hash + Clone,
+        Q: QueryParents,
 
 {
-    pub fn new(id: SnapshotId, db: Arc<Mutex<P>>, manager: ReadOnlyLock<BlockStateManager<P, S, Bh>>) -> Self {
+    pub fn new(id: SnapshotId, db: Arc<Mutex<P>>, manager: ReadOnlyLock<Q>) -> Self {
         Self {
             id,
             db,
@@ -55,14 +56,12 @@ impl<P, S, Bh> TreeQuery<P, S, Bh>
 }
 
 
-impl<P, S, Bh> TreeQuery<P, S, Bh>
+impl<P, Q> TreeQuery<P, Q>
     where
-        P: Storage<Key=S::Key, Value=S::Value>,
-        S: Snapshot,
-        Bh: Eq + Hash + Clone,
-
+        P: Storage<Key=<Q::Snapshot as Snapshot>::Key, Value=<Q::Snapshot as Snapshot>::Value>,
+        Q: QueryParents,
 {
-    pub fn get_value_from_cache_layers(&self, key: &S::Key) -> Option<S::Value> {
+    pub fn get_value_from_cache_layers(&self, key: &<Q::Snapshot as Snapshot>::Key) -> Option<<Q::Snapshot as Snapshot>::Value> {
         let manager = self.manager.read().unwrap();
         let value_from_cache = manager.get_value_recursively(&self.id, key);
         if value_from_cache.is_some() {
@@ -95,19 +94,25 @@ pub struct BlockStateManager<P: Storage, S: Snapshot, Bh> {
 }
 
 
-pub trait QueryParents<S: Snapshot> {
-    fn get_value_recursively(&self, snapshot_block_hash: SnapshotId, key: &S::Key) -> Option<S::Value>;
+pub trait QueryParents {
+    type Snapshot: Snapshot;
+    fn get_value_recursively(&self,
+                             snapshot_block_hash: &SnapshotId,
+                             key: &<Self::Snapshot as Snapshot>::Key,
+    ) -> Option<<Self::Snapshot as Snapshot>::Value>;
 }
 
 // Separate IMPL block, so no `Into<Payload>` bound here
 // Can it be trait implementation?
-impl<P, S, Bh> BlockStateManager<P, S, Bh>
+impl<P, S, Bh> QueryParents for BlockStateManager<P, S, Bh>
     where
         P: Storage,
         S: Snapshot,
         Bh: Eq + Hash + Clone
 {
-    pub fn get_value_recursively(&self, snapshot_id: &SnapshotId, key: &S::Key) -> Option<S::Value> {
+    type Snapshot = S;
+
+    fn get_value_recursively(&self, snapshot_id: &SnapshotId, key: &S::Key) -> Option<S::Value> {
         let snapshot_block_hash = self.snapshot_id_to_block_hash.get(snapshot_id)?;
         let parent_block_hash = self.blocks_to_parent.get(snapshot_block_hash)?;
         let mut parent_snapshot = self.snapshots.get(parent_block_hash);
@@ -161,7 +166,7 @@ impl<P, S, Bh> BlockStateManager<P, S, Bh>
             && self.snapshot_id_to_block_hash.is_empty()
     }
 
-    pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeQuery<P, S, Bh> {
+    pub fn get_new_ref(&mut self, prev_block_hash: &Bh, current_block_hash: &Bh) -> TreeQuery<P, BlockStateManager<P, S, Bh>> {
         self.latest_snapshot_id += 1;
         let new_snapshot_ref = TreeQuery {
             id: self.latest_snapshot_id,
@@ -224,7 +229,7 @@ mod tests {
     use crate::state::{DB, StateCheckpoint};
     use super::*;
 
-    fn write_values(db: DB, snapshot_ref: TreeQuery<Database, FrozenSnapshot, BlockHash>, values: &[(&str, &str)]) -> FrozenSnapshot {
+    fn write_values(db: DB, snapshot_ref: TreeQuery<Database, BlockStateManager<Database, FrozenSnapshot, BlockHash>>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(snapshot_ref);
         let mut working_set = checkpoint.to_revertable();
         for (key, value) in values {

@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use sov_first_read_last_write_cache::cache::CacheLog;
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::block_state_manager::{Snapshot, TreeQuery};
+use crate::block_state_manager::{BlockStateManager, TreeQuery};
 use crate::db::Storage;
 use crate::rollup_interface::STF;
 use crate::state::{DB, FrozenSnapshot, StateCheckpoint};
@@ -16,23 +16,20 @@ pub enum Operation {
 }
 
 
-pub struct SampleSTF<P: Storage<Payload=CacheLog>, S: Snapshot, Bh> {
+pub struct SampleSTF<P: Storage<Payload=CacheLog>, Bh> {
     phantom_persistence: PhantomData<P>,
-    phantom_snapshot: PhantomData<S>,
     phantom_bh: PhantomData<Bh>,
     // TODO: Should be read only db
     db: DB,
 }
 
-impl<P, S, Bh> SampleSTF<P, S, Bh>
+impl<P, Bh> SampleSTF<P, Bh>
     where
-        P: Storage<Payload=CacheLog>,
-        S: Snapshot<Key=CacheKey, Value=CacheValue>
+        P: Storage<Payload=CacheLog, Key=CacheKey, Value=CacheValue>,
 {
     pub fn new(db: DB) -> Self {
         Self {
             phantom_persistence: PhantomData,
-            phantom_snapshot: PhantomData,
             phantom_bh: PhantomData,
             db,
         }
@@ -40,13 +37,12 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 }
 
 //
-impl<P, S, Bh> SampleSTF<P, S, Bh>
+impl<P, Bh> SampleSTF<P, Bh>
     where
-        P: Storage<Payload=CacheLog, Key=S::Key, Value=S::Value>,
-        S: Snapshot<Key=CacheKey, Value=CacheValue>,
+        P: Storage<Payload=CacheLog, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone,
 {
-    fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, Bh>, operation: Operation) -> StateCheckpoint<P, Bh> {
+    fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, BlockStateManager<P, FrozenSnapshot, Bh>>, operation: Operation) -> StateCheckpoint<P, BlockStateManager<P, FrozenSnapshot, Bh>> {
         let mut working_set = checkpoint.to_revertable();
         match operation {
             Operation::Get(key) => {
@@ -70,15 +66,14 @@ impl<P, S, Bh> SampleSTF<P, S, Bh>
 }
 
 
-impl<P, S, Bh> STF for SampleSTF<P, S, Bh>
+impl<P, Bh> STF for SampleSTF<P, Bh>
     where
-        P: Storage<Payload=CacheLog, Key=S::Key, Value=S::Value>,
-        S: Snapshot<Key=CacheKey, Value=CacheValue>,
+        P: Storage<Payload=CacheLog, Key=CacheKey, Value=CacheValue>,
         Bh: Eq + Hash + Clone
 {
     type Witness = Witness;
     type BlobTransaction = Operation;
-    type SnapshotRef = TreeQuery<P, FrozenSnapshot, Bh>;
+    type SnapshotRef = TreeQuery<P, BlockStateManager<P, FrozenSnapshot, Bh>>;
     type ChangeSet = FrozenSnapshot;
 
     fn apply_slot<'a, I>(&mut self, base: Self::SnapshotRef, blobs: I) -> (Self::Witness, Self::ChangeSet) where I: IntoIterator<Item=Self::BlobTransaction> {
