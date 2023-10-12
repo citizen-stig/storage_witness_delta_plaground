@@ -76,10 +76,10 @@ impl Storage for Database {
 }
 
 /// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
-pub struct StateCheckpoint<P: Storage<Key=CacheKey, Value=CacheValue>, SnapshotId: Clone> {
+pub struct StateCheckpoint<P: Storage<Key=CacheKey, Value=CacheValue>, Bh: Clone> {
     cache: CacheLog,
     witness: Witness,
-    parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
+    parent: TreeQuery<P, FrozenSnapshot, Bh>,
 }
 
 
