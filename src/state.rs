@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 use sov_first_read_last_write_cache::cache::{CacheLog, ValueExists};
 use sov_first_read_last_write_cache::{CacheKey, CacheValue};
-use crate::block_state_manager::{Snapshot, SnapshotId, TreeQuery};
+use crate::block_state_manager::{QueryParents, Snapshot, SnapshotId, TreeQuery};
 use crate::db::{Database, Storage};
 use crate::types::{Key, Value};
 use crate::witness::Witness;
@@ -76,19 +75,19 @@ impl Storage for Database {
 }
 
 /// Note: S: Snapshot can be inside storage spec, together with SnapshotId, and SnapshotId is DaSpec::BlockHash
-pub struct StateCheckpoint<P: Storage<Key=CacheKey, Value=CacheValue>, Bh: Clone> {
+pub struct StateCheckpoint<P: Storage<Key=CacheKey, Value=CacheValue>, Q: QueryParents<Snapshot=FrozenSnapshot>> {
     cache: CacheLog,
     witness: Witness,
-    parent: TreeQuery<P, FrozenSnapshot, Bh>,
+    parent: TreeQuery<P, Q>,
 }
 
 
-impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
+impl<P, Q> StateCheckpoint<P, Q>
     where
         P: Storage<Key=CacheKey, Value=CacheValue>,
-        SnapshotId: Eq + Hash + Clone
+        Q: QueryParents<Snapshot=FrozenSnapshot>,
 {
-    pub fn new(parent: TreeQuery<P, FrozenSnapshot, SnapshotId>) -> Self {
+    pub fn new(parent: TreeQuery<P, Q>) -> Self {
         Self {
             cache: Default::default(),
             witness: Default::default(),
@@ -96,7 +95,7 @@ impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<P, SnapshotId> {
+    pub fn into_revertable(self) -> WorkingSet<P, Q> {
         WorkingSet {
             cache: RevertableWriter::new(self.cache),
             witness: self.witness,
@@ -105,7 +104,7 @@ impl<P, SnapshotId> StateCheckpoint<P, SnapshotId>
     }
 
     pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
-        let witness = std::mem::replace(&mut self.witness, Default::default());
+        let witness = std::mem::take(&mut self.witness);
         let snapshot = FrozenSnapshot {
             id: self.parent.get_id(),
             local_cache: self.cache,
@@ -126,7 +125,7 @@ impl StateReaderAndWriter for CacheLog {
         let cache_key = CacheKey::from(key.clone());
         match self.get_value(&cache_key) {
             ValueExists::Yes(some) => {
-                some.map(|v| Value::from(v))
+                some.map(Value::from)
             }
             ValueExists::No => {
                 None
@@ -181,16 +180,16 @@ impl<T> RevertableWriter<T>
     }
 }
 
-pub struct WorkingSet<P: Storage<Key=CacheKey, Value=CacheValue>, SnapshotId: Clone> {
+pub struct WorkingSet<P: Storage<Key=CacheKey, Value=CacheValue>, Q: QueryParents<Snapshot=FrozenSnapshot>> {
     cache: RevertableWriter<CacheLog>,
     witness: Witness,
-    parent: TreeQuery<P, FrozenSnapshot, SnapshotId>,
+    parent: TreeQuery<P, Q>,
 }
 
-impl<P, SnapshotId> WorkingSet<P, SnapshotId>
+impl<P, Q> WorkingSet<P, Q>
     where
         P: Storage<Key=CacheKey, Value=CacheValue>,
-        SnapshotId: Eq + Hash + Clone,
+        Q: QueryParents<Snapshot=FrozenSnapshot>,
 {
     /// Public interface. Reads local cache, then tries parents and then database, if parent was committed
     pub fn get(&mut self, key: &Key) -> Option<Value> {
@@ -214,7 +213,7 @@ impl<P, SnapshotId> WorkingSet<P, SnapshotId>
     }
 
 
-    pub fn commit(self) -> StateCheckpoint<P, SnapshotId> {
+    pub fn commit(self) -> StateCheckpoint<P, Q> {
         StateCheckpoint {
             cache: self.cache.commit(),
             witness: self.witness,
@@ -222,7 +221,7 @@ impl<P, SnapshotId> WorkingSet<P, SnapshotId>
         }
     }
 
-    pub fn revert(self) -> StateCheckpoint<P, SnapshotId> {
+    pub fn revert(self) -> StateCheckpoint<P, Q> {
         StateCheckpoint {
             cache: self.cache.revert(),
             witness: Witness::default(),
