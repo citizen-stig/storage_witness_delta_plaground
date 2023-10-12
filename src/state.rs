@@ -95,7 +95,7 @@ impl<P, Q> StateCheckpoint<P, Q>
         }
     }
 
-    pub fn to_revertable(self) -> WorkingSet<P, Q> {
+    pub fn into_revertable(self) -> WorkingSet<P, Q> {
         WorkingSet {
             cache: RevertableWriter::new(self.cache),
             witness: self.witness,
@@ -104,7 +104,7 @@ impl<P, Q> StateCheckpoint<P, Q>
     }
 
     pub fn freeze(mut self) -> (Witness, FrozenSnapshot) {
-        let witness = std::mem::replace(&mut self.witness, Default::default());
+        let witness = std::mem::take(&mut self.witness);
         let snapshot = FrozenSnapshot {
             id: self.parent.get_id(),
             local_cache: self.cache,
@@ -125,7 +125,7 @@ impl StateReaderAndWriter for CacheLog {
         let cache_key = CacheKey::from(key.clone());
         match self.get_value(&cache_key) {
             ValueExists::Yes(some) => {
-                some.map(|v| Value::from(v))
+                some.map(Value::from)
             }
             ValueExists::No => {
                 None

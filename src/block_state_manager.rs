@@ -231,7 +231,7 @@ mod tests {
 
     fn write_values(db: DB, snapshot_ref: TreeQuery<Database, BlockStateManager<Database, FrozenSnapshot, BlockHash>>, values: &[(&str, &str)]) -> FrozenSnapshot {
         let checkpoint = StateCheckpoint::new(snapshot_ref);
-        let mut working_set = checkpoint.to_revertable();
+        let mut working_set = checkpoint.into_revertable();
         for (key, value) in values {
             let key = Key::from(key.to_string());
             let value = Value::from(value.to_string());

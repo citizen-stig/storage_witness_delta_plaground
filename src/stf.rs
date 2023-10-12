@@ -43,7 +43,7 @@ impl<P, Bh> SampleSTF<P, Bh>
         Bh: Eq + Hash + Clone,
 {
     fn apply_operation(&mut self, checkpoint: StateCheckpoint<P, BlockStateManager<P, FrozenSnapshot, Bh>>, operation: Operation) -> StateCheckpoint<P, BlockStateManager<P, FrozenSnapshot, Bh>> {
-        let mut working_set = checkpoint.to_revertable();
+        let mut working_set = checkpoint.into_revertable();
         match operation {
             Operation::Get(key) => {
                 let value = working_set.get(&key);
